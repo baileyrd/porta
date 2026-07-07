@@ -37,10 +37,14 @@ it.
 
 ## What it does
 
-- **`porta init`** — creates `~/.porta/{bin,tools,cache}` and adds
-  `~/.porta/bin` to your `PATH` (an idempotent block in `.profile`/`.bashrc`/
+- **`porta init [--home <dir>]`** — creates the environment layout and adds
+  its `bin/` to your `PATH` (an idempotent block in `.profile`/`.bashrc`/
   `.zshrc`/fish's `config.fish` on Unix; your user environment block,
-  `HKCU\Environment`, on Windows — never the machine-wide PATH).
+  `HKCU\Environment`, on Windows — never the machine-wide PATH). `--home`
+  puts the environment wherever you want it (see
+  [Choosing where it lives](#choosing-where-it-lives-and-moving-it-later)).
+- **`porta move <dir>`** — relocate an existing environment: moves the
+  directory, re-wires PATH (removing the stale entry), re-links dotfiles.
 - **`porta install <name>`** — installs a tool from the
   [manifest](manifests/tools.toml) using whichever strategy it declares:
   - **`binary`** — downloads a prebuilt release (raw binary or archive) for
@@ -93,13 +97,52 @@ it.
 
 | What | Where |
 |---|---|
-| porta's home | `~/.porta` (macOS/Linux) / `%LOCALAPPDATA%\porta` (Windows); override with `$PORTA_HOME` |
+| porta's home | anywhere you choose (`porta init --home <dir>`); defaults to `~/.porta` (macOS/Linux) / `%LOCALAPPDATA%\porta` (Windows) |
 | `binary`/`source` tool installs | `~/.porta/bin/<tool>` — the one directory porta puts on PATH (the `ai` tool installs as `~/.porta/bin/claude`) |
 | download cache | `~/.porta/cache/<tool>/<version>/` (reinstalling a cached version is offline) |
 | source-build checkouts | `~/.porta/tools/<tool>-src` (recreated per install) |
 | install registry | `~/.porta/state.json` (paths stored relative to `$PORTA_HOME`, so the file survives a move) |
 | tracked dotfiles | `~/.porta/dotfiles/<home-relative-path>`, symlinked into `$HOME` |
 | `script` tool installs | wherever the vendor's installer puts them — the one non-portable exception |
+
+## Choosing where it lives (and moving it later)
+
+The environment's root doesn't have to be the default — designate any
+directory at setup time:
+
+```sh
+porta init --home /opt/tools/porta        # Unix
+porta init --home C:\tools\porta          # Windows
+```
+
+`--home` creates the layout there, **copies the porta binary inside**
+(`<home>/bin/porta`), and wires PATH to it. From then on no environment
+variable is needed: a porta binary running from `<anything>/bin/` next to a
+`state.json` treats that directory as its home — the folder is
+self-describing, which is also why you can copy it between machines. The
+full resolution order is `$PORTA_HOME` (explicit override) → the
+executable's own location → the platform default; `porta doctor` shows
+which one applied.
+
+Already set up and want it elsewhere? Move it in place:
+
+```sh
+porta move D:\tools\porta
+```
+
+`move` relocates the directory (handling cross-drive moves by copy),
+rewrites the PATH block — dropping the old entry, including from the
+Windows user PATH — and re-points every tracked dotfile symlink at the
+moved store. If you had `$PORTA_HOME` exported, porta reminds you to update
+or drop it.
+
+To designate the location at bootstrap time, set `PORTA_HOME` just for the
+install command — it's only needed that once, since the installed binary
+self-locates afterwards:
+
+```sh
+PORTA_HOME=/opt/tools/porta sh install.sh
+```
 
 ## Dotfiles
 

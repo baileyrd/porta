@@ -16,10 +16,19 @@ pub struct Cli {
 pub enum Command {
     /// Set up porta: create its directories and add its bin dir to PATH.
     Init {
+        /// Create the environment at this directory instead of the default
+        /// (~/.porta, %LOCALAPPDATA%\porta). The porta binary is copied
+        /// inside, and from then on it finds its home by its own location —
+        /// no environment variable needed.
+        #[arg(long)]
+        home: Option<std::path::PathBuf>,
         /// Also install the bundled AI CLI (Claude Code) right away.
         #[arg(long)]
         with_ai: bool,
     },
+    /// Relocate the whole environment to a new directory: moves it,
+    /// re-wires PATH, and re-links tracked dotfiles.
+    Move { new_home: std::path::PathBuf },
     /// Show environment status: PATH wiring, installed tools.
     Doctor,
     /// List tools available in the manifest and which are installed.

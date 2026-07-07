@@ -151,6 +151,31 @@ fn replace_marked_block(existing: &str, new_block: &str) -> Option<String> {
     Some(result)
 }
 
+/// Remove a directory from the user-scope PATH. Used by `porta move` so
+/// the old bin directory doesn't linger. On Unix this is a no-op: the rc
+/// marker block is rewritten wholesale, which drops old entries by itself.
+pub fn remove_user_path_entry(dir: &Path) -> Result<()> {
+    if !cfg!(windows) {
+        return Ok(());
+    }
+    let target = dir.display().to_string();
+    let script = format!(
+        "$old = [Environment]::GetEnvironmentVariable('Path', 'User');\n\
+         if ($old) {{\n\
+           $parts = $old.Split(';') | Where-Object {{ $_.TrimEnd('\\') -ne '{target}'.TrimEnd('\\') }};\n\
+           [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User');\n\
+         }}\n"
+    );
+    let status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .context("failed to launch `powershell` to update the user PATH")?;
+    if !status.success() {
+        anyhow::bail!("powershell exited with {status} while removing a PATH entry");
+    }
+    Ok(())
+}
+
 fn wire_windows(dirs: &[PathBuf]) -> Result<Vec<String>> {
     // User-scope (`HKCU\Environment`) PATH update via .NET's Environment
     // API, invoked through PowerShell — the same mechanism rustup, nvm-

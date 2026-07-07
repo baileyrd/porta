@@ -37,6 +37,15 @@ having the same property — see below).
   tools.toml      <- OPTIONAL user manifest, merged over the built-in one
 ```
 
+The root itself is designatable (`porta init --home <dir>`) and movable
+(`porta move <dir>`). Resolution order in `paths.rs`: `$PORTA_HOME` env →
+**executable self-location** (the binary runs from `<dir>/bin/` and
+`<dir>/state.json` exists — the marker keeps a porta copied into, say,
+`/usr/local/bin` from mistaking `/usr/local` for a home) → platform
+default. `init` copies the running binary into `<home>/bin` and writes
+`state.json`, which is what arms self-location; `porta doctor` reports
+which rule resolved the home.
+
 This layout is the portability unit: copy `~/.porta` to another machine
 (same OS/arch), run `porta init` there, and the environment — including the
 `claude` binary the `ai` tool installs — works. Two details make that hold:
@@ -79,7 +88,7 @@ src/
                  tarballs' single top dir)
   shell_init.rs  PATH wiring: idempotent marker blocks in rc files (Unix),
                  HKCU user PATH via PowerShell (Windows)
-  doctor.rs      environment readout
+  doctor.rs      environment readout (incl. how the home was resolved)
   install/
     mod.rs       Strategy enum, auto-selection policy, shared helpers
     script.rs    fetch + run a vendor's own installer

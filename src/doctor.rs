@@ -6,8 +6,8 @@ use crate::state::State;
 use anyhow::Result;
 
 pub fn run() -> Result<()> {
-    let home = crate::paths::porta_home();
-    println!("porta home:   {}", home.display());
+    let (home, source) = crate::paths::porta_home_with_source();
+    println!("porta home:   {} ({})", home.display(), source.describe());
     println!("bin dir:      {}", crate::paths::bin_dir().display());
 
     let bin_dir = crate::paths::bin_dir();
