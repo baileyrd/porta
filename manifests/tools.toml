@@ -1,0 +1,71 @@
+# porta's built-in tool manifest.
+#
+# Each [[tool]] declares one or more install strategies:
+#   - [tool.script]  run the vendor's own official no-admin installer
+#   - [tool.binary]  download a prebuilt archive for the current OS/arch
+#   - [tool.source]  git clone + build locally
+#
+# `porta install <name>` uses `script` if present, otherwise tries `binary`
+# and falls back to `source` automatically. `--strategy` forces one.
+#
+# You can add your own entries (or override these) in
+# `$PORTA_HOME/tools.toml` without editing this file.
+
+[[tool]]
+name = "ai"
+display_name = "Claude Code"
+description = "Anthropic's AI coding CLI, via its own official native (no-admin) installer."
+
+[tool.script]
+# Claude Code's native installer already places `claude` here itself; porta
+# just makes sure this directory ends up on PATH.
+installs_to = "~/.local/bin"
+
+[tool.script.unix]
+url = "https://claude.ai/install.sh"
+interpreter = "bash"
+
+[tool.script.windows]
+url = "https://claude.ai/install.ps1"
+interpreter = "powershell"
+args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "{script}"]
+
+
+[[tool]]
+name = "ripgrep"
+display_name = "ripgrep"
+description = "Fast recursive search (rg) — a demonstration binary/source tool entry."
+
+[tool.binary]
+version = "14.1.1"
+
+[tool.binary.targets.linux-x86_64]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz"
+archive = "tar.gz"
+binary_path = "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
+
+[tool.binary.targets.linux-aarch64]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz"
+archive = "tar.gz"
+binary_path = "ripgrep-14.1.1-aarch64-unknown-linux-gnu/rg"
+
+[tool.binary.targets.macos-x86_64]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-apple-darwin.tar.gz"
+archive = "tar.gz"
+binary_path = "ripgrep-14.1.1-x86_64-apple-darwin/rg"
+
+[tool.binary.targets.macos-aarch64]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-apple-darwin.tar.gz"
+archive = "tar.gz"
+binary_path = "ripgrep-14.1.1-aarch64-apple-darwin/rg"
+
+[tool.binary.targets.windows-x86_64]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-pc-windows-msvc.zip"
+archive = "zip"
+binary_path = "ripgrep-14.1.1-x86_64-pc-windows-msvc/rg.exe"
+
+[tool.source]
+repo = "https://github.com/BurntSushi/ripgrep"
+git_ref = "14.1.1"
+build_cmd = ["cargo", "build", "--release", "--bin", "rg"]
+binary_path = "target/release/rg"
