@@ -86,7 +86,7 @@ function Test-AssetChecksum([string]$File, [string]$AssetName, [string]$Base) {
         if ($actual -ne $expected.ToLowerInvariant()) {
             # Tagged so Try-InstallPrebuilt's fall-through catches rethrow it
             # instead of quietly moving on to another install path.
-            throw "porta-checksum-mismatch: $AssetName: expected $expected, got $actual — refusing to install it"
+            throw "porta-checksum-mismatch: ${AssetName}: expected $expected, got $actual — refusing to install it"
         }
         Write-Log "checksum verified ($AssetName)"
     } finally {

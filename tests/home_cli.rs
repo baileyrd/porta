@@ -17,6 +17,10 @@ impl Scratch {
             std::env::temp_dir().join(format!("porta-home-itest-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
+        // Canonicalize: macOS's temp dir lives under /var -> /private/var,
+        // and the self-location assertions compare against doctor output,
+        // which reports the canonicalized (exe-derived) home path.
+        let home = home.canonicalize().unwrap();
         Scratch { home }
     }
 }
