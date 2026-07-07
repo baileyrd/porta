@@ -114,13 +114,14 @@ display_name = "rush"
 description = "A small, bash-compatible shell in Rust — a shell that lives inside the environment."
 
 # Built from a source tarball (no git needed on the host; requires cargo).
-# rush publishes no release binaries yet, so this tracks the main branch;
-# when rush ships prebuilt releases this entry can gain a [tool.binary]
-# fast path.
+# Pinned to rush's tagged release so installs are reproducible; bump the
+# tag here (or override in ~/.porta/tools.toml) to update. rush's releases
+# carry no binary assets yet — when they do, this entry can gain a
+# [tool.binary] fast path.
 [tool.source]
 repo = "https://github.com/baileyrd/rush"
-git_ref = "main"
-archive_url = "https://codeload.github.com/baileyrd/rush/tar.gz/refs/heads/{ref}"
+git_ref = "v0.1.0"
+archive_url = "https://codeload.github.com/baileyrd/rush/tar.gz/refs/tags/{ref}"
 build_cmd = ["cargo", "build", "--release"]
 binary_path = "target/release/rush"
 
