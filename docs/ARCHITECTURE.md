@@ -1,6 +1,6 @@
 # porta architecture
 
-porta is a small Rust CLI (~1,200 lines across nine modules) with one job:
+porta is a small Rust CLI with one job:
 stand up a per-user development environment — including an AI coding CLI —
 on a machine where you have no admin rights, and keep every side effect
 inside user-owned locations.
@@ -30,7 +30,10 @@ having the same property — see below).
                      re-installing the same version skips the network
     installer-scripts/   <- fetched vendor installer scripts before running
   tools/          <- scratch: source checkouts during `source` builds
+  dotfiles/       <- tracked dotfiles, symlinked into $HOME (travel with
+                     the environment; see the dotfiles module)
   state.json      <- registry of what porta installed (version/strategy/where)
+                     + the list of tracked dotfiles
   tools.toml      <- OPTIONAL user manifest, merged over the built-in one
 ```
 
@@ -40,7 +43,10 @@ This layout is the portability unit: copy `~/.porta` to another machine
 `state.json` stores locations under `$PORTA_HOME` with a literal
 `${PORTA_HOME}` prefix rather than an absolute path (expanded against the
 *current* home on read), and the `ai` tool downloads the real binary into
-`bin/` instead of delegating to a vendor installer.
+`bin/` instead of delegating to a vendor installer. Configuration travels
+too: `porta dotfiles add` moves files into `dotfiles/` and symlinks them
+back into `$HOME`; `porta init` re-links them after a move (an existing
+file on the new machine is preserved as `<name>.porta-backup`).
 
 `script`-strategy tools are the deliberate exception to `bin/`: the vendor's
 installer owns its install location, so porta records that directory in
@@ -59,7 +65,12 @@ src/
   manifest.rs    TOML schema (Tool/ScriptSpec/BinarySpec/SourceSpec),
                  built-in manifest embedded via include_str!, user-manifest
                  merge (by tool name), target-key resolution (os-arch)
-  state.rs       state.json load/save; record/remove entries
+  state.rs       state.json load/save; record/remove entries; the
+                 tracked-dotfiles list
+  dotfiles.rs    dotfile store: add (move + symlink), link (recreate all
+                 symlinks, backing up what's in the way), list, remove
+                 (restore a real copy). Unix symlinks; Windows falls back
+                 to copies when symlinks need Developer Mode.
   download.rs    the only place HTTP happens: ureq + rustls, 300s timeout,
                  root-of-trust policy (see below)
   archive.rs     extraction by shelling out (tar / unzip / Expand-Archive)
@@ -103,11 +114,13 @@ Unix: porta writes a block delimited by
 
 ```
 # >>> porta initialize >>>
-export PATH="'/home/you/.porta/bin':$PATH"
+export PATH="$HOME/.porta/bin:$PATH"
 # <<< porta initialize <<<
 ```
 
-Re-running replaces the block in place (never duplicates it). `~/.profile`
+Paths under the home directory are deliberately written as `$HOME/...`, so
+an rc file that itself travels (via `porta dotfiles`) needs no per-machine
+rewrite. Re-running replaces the block in place (never duplicates it). `~/.profile`
 is always updated; `.bashrc`/`.zshrc` only if they already exist or `$SHELL`
 matches, so porta doesn't scatter rc files for shells you don't use. fish
 gets a `fish_add_path --prepend` block in `config.fish` under the same
@@ -156,10 +169,14 @@ audit. The trade-off is a runtime dependency on those tools existing, which
 (including that the embedded manifest is valid and has the `ai` entry),
 tilde expansion, version-string validation, `{version}` URL templating,
 dotted-path JSON checksum lookup, SHA-256 against a FIPS test vector,
-`${PORTA_HOME}` state-path round-tripping, PATH-block idempotency and
-content preservation, tar.gz round-trip extraction, and `locate`'s tolerance
-of unpredictable archive top-level directory names. Install strategies are
-exercised end-to-end manually (`porta install ai` downloads and
+`${PORTA_HOME}` state-path round-tripping, PATH-block idempotency, quoting,
+and `$HOME`-relativity, tar.gz round-trip extraction, and `locate`'s
+tolerance of unpredictable archive top-level directory names. Integration
+tests (`tests/dotfiles_cli.rs`) drive the real binary in scratch
+HOME/PORTA_HOME sandboxes: the dotfiles add/link/backup/remove lifecycle,
+dotfiles surviving an environment move via `porta init`, and a live bash
+sourcing the porta-written `.profile` and resolving a binary through the
+PATH block. Install strategies are exercised end-to-end manually (`porta install ai` downloads and
 checksum-verifies the real `claude` binary; a deliberately corrupted cache
 entry is rejected; a copied `$PORTA_HOME` runs on a different home path)
 since they are thin compositions of the tested parts plus network/process

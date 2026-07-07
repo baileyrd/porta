@@ -70,6 +70,8 @@ it.
   `script`-installed tools this only forgets porta's own record of it —
   porta never deletes a vendor's own installation, since that installer
   manages its own updates/uninstall.
+- **`porta dotfiles add|link|list|remove`** — keep dotfiles *inside* the
+  environment so they travel with it (see [Dotfiles](#dotfiles)).
 - **`porta which <name>`** / **`porta path`** — small utilities.
 
 ## Where things land
@@ -81,7 +83,78 @@ it.
 | download cache | `~/.porta/cache/<tool>/<version>/` (reinstalling a cached version is offline) |
 | source-build checkouts | `~/.porta/tools/<tool>-src` (recreated per install) |
 | install registry | `~/.porta/state.json` (paths stored relative to `$PORTA_HOME`, so the file survives a move) |
+| tracked dotfiles | `~/.porta/dotfiles/<home-relative-path>`, symlinked into `$HOME` |
 | `script` tool installs | wherever the vendor's installer puts them — the one non-portable exception |
+
+## Dotfiles
+
+Binaries aren't the whole environment — your configuration is the other
+half. `porta dotfiles` stores config files inside `~/.porta/dotfiles` and
+symlinks them into place, so they move with the environment:
+
+```sh
+porta dotfiles add ~/.gitconfig ~/.bashrc ~/.config/nvim
+porta dotfiles list      # tracked files + link status
+porta dotfiles remove ~/.bashrc   # restore a real copy, stop tracking
+```
+
+`add` *moves* the file into the store and leaves a symlink at the original
+path, so everything keeps working exactly as before — editing `~/.gitconfig`
+edits the stored copy. On a new machine, `porta init` (or `porta dotfiles
+link`) recreates every symlink; if the machine already has its own version
+of a file, it's preserved as `<name>.porta-backup`, never overwritten.
+
+Directories work too (`~/.config/nvim` above). On Windows, symlinks without
+admin need Developer Mode enabled; when unavailable porta places a copy
+instead and tells you so.
+
+A nice side effect for shell config: the PATH block porta writes uses
+`$HOME`-relative paths (`export PATH="$HOME/.porta/bin:$PATH"`), so a
+tracked `.bashrc`/`.profile` is portable as-is — no per-machine rewrite
+needed.
+
+## Bring your own shell
+
+A shell is just another binary, so it can live in the environment like
+everything else. Two examples for `~/.porta/tools.toml`:
+
+```toml
+# A shell you build from source — e.g. rush, a bash-compatible shell in Rust
+[[tool]]
+name = "rush"
+description = "A small, bash-compatible shell written in Rust"
+
+[tool.source]
+repo = "https://github.com/baileyrd/rush"
+build_cmd = ["cargo", "build", "--release"]
+binary_path = "target/release/rush"
+```
+
+`porta install rush` puts it at `~/.porta/bin/rush`, and it travels with
+the environment like any `binary`/`source` tool.
+
+**The honest caveat: your *login* shell can't be changed without admin.**
+`chsh` only accepts shells listed in `/etc/shells`, and editing that file
+requires root. The no-admin patterns instead:
+
+- **Exec into it from your rc file** — add to `.bashrc` (ideally one you
+  track with `porta dotfiles`):
+
+  ```sh
+  # hand the session to the porta-managed shell when it's available
+  if [ -x "$HOME/.porta/bin/rush" ] && [ -z "$PORTA_SHELL" ]; then
+      export PORTA_SHELL=1
+      exec "$HOME/.porta/bin/rush"
+  fi
+  ```
+
+- **Point your terminal at it** — most terminal emulators let you set a
+  custom command/profile per user, no admin needed (e.g. set the profile's
+  command to `~/.porta/bin/rush`).
+
+Either way the login shell on record stays `bash`, but every interactive
+session lands in your shell — and both the shell binary and the rc file
+that launches it travel with `~/.porta`.
 
 ## Moving the environment to another machine
 
@@ -97,17 +170,20 @@ tar -xzf porta-env.tar.gz -C ~
 ```
 
 Everything installed via `binary`/`source` — including the `claude` binary —
-comes along, and `state.json` records locations relative to `$PORTA_HOME`,
-so `porta doctor`/`which`/`uninstall` keep working even when the new
-machine's home directory has a different path.
+comes along; `porta init` also re-links every tracked dotfile. `state.json`
+records locations relative to `$PORTA_HOME`, so `porta doctor`/`which`/
+`uninstall` keep working even when the new machine's home directory has a
+different path.
 
 Caveats:
 
 - The copy is per-OS/arch: a `~/.porta` built on x86-64 Linux won't run on
   an ARM Mac. Re-run the installs there instead (`porta install ai`).
 - Claude Code's *login and settings* live in `~/.claude` (or
-  `$CLAUDE_CONFIG_DIR`), not inside `~/.porta` — copy that directory too if
-  you want to carry your session, or just log in again on the new machine.
+  `$CLAUDE_CONFIG_DIR`), not inside `~/.porta`. To carry them with the
+  environment, track them: `porta dotfiles add ~/.claude` (mind that this
+  moves your credentials into the portable directory — treat the copy like
+  the secret it is). Otherwise just log in again on the new machine.
 - porta's copy of `claude` is version-pinned at install time. Update it
   with `porta install ai` (which re-resolves the latest release); Claude
   Code's own background auto-updater targets the vendor layout in
