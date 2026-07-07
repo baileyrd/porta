@@ -17,6 +17,19 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Tag pushes are the normal path. workflow_dispatch exists for cutting a
+  # release from an environment that can't push tags (e.g. a proxy that
+  # only permits branch pushes): the release step creates the tag itself
+  # through the API, at `target` (or the dispatched ref's head).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create (e.g. v0.1.0)"
+        required: true
+      target:
+        description: "Commit SHA the tag should point at (default: the dispatched ref's head)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -100,10 +113,18 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          TARGET: ${{ github.event.inputs.target || github.sha }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # The tag doesn't exist yet — the release creates it at TARGET.
+            mode_args="--target $TARGET"
+          else
+            mode_args="--verify-tag"
+          fi
+          gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "porta $GITHUB_REF_NAME" \
-            --verify-tag \
+            --title "porta $TAG" \
+            $mode_args \
             --generate-notes \
             --notes "Raw prebuilt binaries for the bootstrap installers (\`install.sh\` / \`install.ps1\`); \`checksums.txt\` is sha256sum-format. Linux binaries are static (musl) and run on any distro."
