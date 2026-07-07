@@ -35,6 +35,33 @@ Don't want the AI CLI installed automatically? Set `PORTA_SKIP_AI=1` before
 running the installer, and run `porta install ai` yourself whenever you want
 it.
 
+### Private repositories
+
+GitHub answers anonymous requests for a **private** repository with
+`404: Not Found` — not `403` — so if this repo (or a private tool repo in
+the manifest, like `rush`) hasn't been made public, the installers and
+`porta install` will report 404s for release assets, source archives, and
+raw files. Fix: set a token with read access to the repo before running
+them:
+
+```sh
+export GITHUB_TOKEN=<fine-grained PAT with contents:read>   # macOS/Linux
+```
+
+```powershell
+$env:GITHUB_TOKEN = "<PAT>"                                  # Windows
+```
+
+Both installers and porta's own downloader pick it up (`GH_TOKEN` works
+too) and attach it **only** to requests bound for GitHub's own hosts
+(`github.com`, `codeload.github.com`, `raw.githubusercontent.com`, …) —
+never to any other endpoint, like rustup or Anthropic's release host.
+
+One wrinkle while the repo is private: the `curl`/`irm` quickstart URLs
+above point at `raw.githubusercontent.com`, which 404s anonymously too —
+download `install.sh`/`install.ps1` some other way first (e.g. from a
+clone, or the GitHub UI), then run it with the token set.
+
 ## What it does
 
 - **`porta init [--home <dir>]`** — creates the environment layout and adds
