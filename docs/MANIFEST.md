@@ -156,8 +156,8 @@ binary_path = "target/release/rg"   # relative to the source root
 avoids the redirect. Branch form: `.../tar.gz/refs/heads/{ref}`.)
 
 **Private GitHub repos:** GitHub answers anonymous requests for private
-repos with 404, so an entry pointing at one (like the built-in `rush`)
-needs `GITHUB_TOKEN`/`GH_TOKEN` set. porta attaches the token to every
+repos with 404, so an entry pointing at one needs `GITHUB_TOKEN`/`GH_TOKEN`
+set. porta attaches the token to every
 download whose URL is on a GitHub-owned host — `binary` URLs, `source`
 archives, checksum documents alike — and never to any other host, so a
 manifest entry can't leak your token elsewhere.

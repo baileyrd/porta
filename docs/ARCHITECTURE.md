@@ -231,3 +231,17 @@ under dash), works with `curl` or `wget`, and its prebuilt path needs
 nothing else; `install.ps1` needs only what Windows itself ships
 (PowerShell's `Invoke-WebRequest`/`Expand-Archive`). They are the only
 place porta ever installs a compiler, and only for building porta itself.
+
+Prebuilt binaries come from the tag-triggered release workflow
+(`.github/workflows/release.yml`): raw `porta-<os>-<arch>[.exe]` assets for
+Linux (static musl — runs on any distro), macOS, and Windows, on x86-64 and
+ARM64, plus a combined sha256sum-format `checksums.txt`. Both installers
+verify the downloaded binary against it. Verification is best-effort where
+the *means* are missing — a host without `sha256sum`/`shasum`, or a release
+without `checksums.txt`, skips with a note rather than raising the
+assume-nothing host floor (Windows always verifies: `Get-FileHash` ships
+with PowerShell) — but an actual mismatch always aborts the install; it
+never silently falls back to another install path. CI
+(`.github/workflows/ci.yml`) runs fmt/clippy, the test suite on
+Linux/macOS/Windows, and syntax-checks both installers (dash for POSIX
+`sh`, the PowerShell language parser for `install.ps1`).

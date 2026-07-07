@@ -1,5 +1,7 @@
 # porta
 
+[![ci](https://github.com/baileyrd/porta/actions/workflows/ci.yml/badge.svg)](https://github.com/baileyrd/porta/actions/workflows/ci.yml)
+
 A portable developer environment you can stand up on any machine — locked
 down, corporate-managed, freshly imaged, whatever — **without admin/root
 privileges**, with an AI coding CLI ([Claude Code](https://claude.com/claude-code))

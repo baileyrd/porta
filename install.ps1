@@ -56,6 +56,44 @@ function Get-GitHubAuthHeaders([string]$Uri) {
     return @{}
 }
 
+# Check a downloaded asset against the release's combined checksums.txt.
+# Best-effort when the release has no checksums.txt (older releases), but a
+# real mismatch aborts the whole install — a tampered download must never
+# silently fall through to another install path.
+function Test-AssetChecksum([string]$File, [string]$AssetName, [string]$Base) {
+    $sumsUrl = "$Base/checksums.txt"
+    $sumsPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+    try {
+        Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsPath -Headers (Get-GitHubAuthHeaders $sumsUrl) -UseBasicParsing -ErrorAction Stop
+    } catch {
+        Write-Log "note: release publishes no checksums.txt; skipping checksum verification"
+        return
+    }
+    try {
+        $expected = $null
+        foreach ($line in Get-Content $sumsPath) {
+            $parts = $line.Trim() -split '\s+', 2
+            if ($parts.Count -eq 2 -and $parts[1].TrimStart('*') -eq $AssetName) {
+                $expected = $parts[0]
+                break
+            }
+        }
+        if (-not $expected) {
+            Write-Log "note: checksums.txt has no entry for $AssetName; skipping checksum verification"
+            return
+        }
+        $actual = (Get-FileHash -Algorithm SHA256 -Path $File).Hash.ToLowerInvariant()
+        if ($actual -ne $expected.ToLowerInvariant()) {
+            # Tagged so Try-InstallPrebuilt's fall-through catches rethrow it
+            # instead of quietly moving on to another install path.
+            throw "porta-checksum-mismatch: ${AssetName}: expected $expected, got $actual — refusing to install it"
+        }
+        Write-Log "checksum verified ($AssetName)"
+    } finally {
+        Remove-Item -Force $sumsPath -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-PortaArch {
     $arch = $env:PROCESSOR_ARCHITECTURE
     switch -Regex ($arch) {
@@ -80,10 +118,12 @@ function Try-InstallPrebuilt([string]$Arch, [string]$Tag) {
             $rawUrl = "$base/porta-windows-$Arch.exe"
             Invoke-WebRequest -Uri $rawUrl -OutFile $rawPath -Headers (Get-GitHubAuthHeaders $rawUrl) -UseBasicParsing -ErrorAction Stop
             Write-Log "found prebuilt release binary (porta-windows-$Arch.exe)"
+            Test-AssetChecksum -File $rawPath -AssetName "porta-windows-$Arch.exe" -Base $base
             New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
             Copy-Item -Path $rawPath -Destination (Join-Path $BinDir "porta.exe") -Force
             return $true
         } catch {
+            if ("$_" -like "porta-checksum-mismatch:*") { throw }
             # fall through to the zip asset shape
         }
 
@@ -97,6 +137,7 @@ function Try-InstallPrebuilt([string]$Arch, [string]$Tag) {
         Copy-Item -Path (Join-Path $tmp "porta.exe") -Destination (Join-Path $BinDir "porta.exe") -Force
         return $true
     } catch {
+        if ("$_" -like "porta-checksum-mismatch:*") { throw }
         return $false
     } finally {
         Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
