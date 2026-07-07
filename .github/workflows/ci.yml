@@ -1,0 +1,59 @@
+# CI: test, clippy, fmt on every push/PR (issue #3).
+#
+# The suite needs no network access — install-strategy behavior against real
+# endpoints is deliberately manual (docs/ARCHITECTURE.md, Testing) — so it is
+# CI-safe as-is. The integration tests are `#[cfg(unix)]`; Windows runs the
+# unit tests plus a full build, which is what catches platform drift in the
+# path/registry code.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo test
+        run: cargo test
+
+  installers:
+    # The bootstrap scripts have no test harness, but both can be
+    # syntax-checked: install.sh must parse under a strict POSIX sh (dash —
+    # the script promises "no bash required"), and install.ps1 must parse
+    # under the PowerShell language parser (pwsh ships on ubuntu runners).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: POSIX syntax check (dash)
+        run: dash -n install.sh
+      - name: PowerShell parse check
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.ToString() }
+            exit 1
+          }
+          Write-Host "install.ps1 parses cleanly"
