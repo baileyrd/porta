@@ -14,21 +14,48 @@
 [[tool]]
 name = "ai"
 display_name = "Claude Code"
-description = "Anthropic's AI coding CLI, via its own official native (no-admin) installer."
+bin_name = "claude"
+description = "Anthropic's AI coding CLI, downloaded self-contained into porta's bin (checksum-verified)."
 
-[tool.script]
-# Claude Code's native installer already places `claude` here itself; porta
-# just makes sure this directory ends up on PATH.
-installs_to = "~/.local/bin"
+# Installed from the same release endpoint Anthropic's official installer
+# uses, but placed inside $PORTA_HOME/bin so the environment stays fully
+# self-contained and can be copied between machines. The version pins at
+# whatever `latest` resolves to at install time; re-run `porta install ai`
+# to update. (glibc Linux builds; on musl distros like Alpine, override the
+# URL with the linux-*-musl variant in ~/.porta/tools.toml.)
+[tool.binary]
+version = "latest"
+version_url = "https://downloads.claude.ai/claude-code-releases/latest"
 
-[tool.script.unix]
-url = "https://claude.ai/install.sh"
-interpreter = "bash"
+[tool.binary.targets.linux-x86_64]
+url = "https://downloads.claude.ai/claude-code-releases/{version}/linux-x64/claude"
+archive = "raw"
+checksum = { url = "https://downloads.claude.ai/claude-code-releases/{version}/manifest.json", json_path = "platforms.linux-x64.checksum" }
 
-[tool.script.windows]
-url = "https://claude.ai/install.ps1"
-interpreter = "powershell"
-args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "{script}"]
+[tool.binary.targets.linux-aarch64]
+url = "https://downloads.claude.ai/claude-code-releases/{version}/linux-arm64/claude"
+archive = "raw"
+checksum = { url = "https://downloads.claude.ai/claude-code-releases/{version}/manifest.json", json_path = "platforms.linux-arm64.checksum" }
+
+[tool.binary.targets.macos-x86_64]
+url = "https://downloads.claude.ai/claude-code-releases/{version}/darwin-x64/claude"
+archive = "raw"
+checksum = { url = "https://downloads.claude.ai/claude-code-releases/{version}/manifest.json", json_path = "platforms.darwin-x64.checksum" }
+
+[tool.binary.targets.macos-aarch64]
+url = "https://downloads.claude.ai/claude-code-releases/{version}/darwin-arm64/claude"
+archive = "raw"
+checksum = { url = "https://downloads.claude.ai/claude-code-releases/{version}/manifest.json", json_path = "platforms.darwin-arm64.checksum" }
+
+[tool.binary.targets.windows-x86_64]
+url = "https://downloads.claude.ai/claude-code-releases/{version}/win32-x64/claude.exe"
+archive = "raw"
+checksum = { url = "https://downloads.claude.ai/claude-code-releases/{version}/manifest.json", json_path = "platforms.win32-x64.checksum" }
+
+[tool.binary.targets.windows-aarch64]
+url = "https://downloads.claude.ai/claude-code-releases/{version}/win32-arm64/claude.exe"
+archive = "raw"
+checksum = { url = "https://downloads.claude.ai/claude-code-releases/{version}/manifest.json", json_path = "platforms.win32-arm64.checksum" }
 
 
 [[tool]]

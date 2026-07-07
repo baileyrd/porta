@@ -32,7 +32,9 @@ pub fn run() -> Result<()> {
             let tool = &state.tools[name];
             println!(
                 "  {name:<12} {:<10} via {:<8} -> {}",
-                tool.version, tool.strategy, tool.location
+                tool.version,
+                tool.strategy,
+                tool.resolved_location()
             );
         }
     }

@@ -129,22 +129,23 @@ fn cmd_uninstall(name: &str) -> Result<()> {
         bail!("`{name}` is not tracked as installed by porta");
     };
 
+    let location = installed.resolved_location();
+
     if installed.strategy == "script" {
         state.save()?;
         println!(
-            "porta: forgot about `{name}`, but did not remove its own installation at {} \
-             (it manages its own uninstall — see the tool's docs).",
-            installed.location
+            "porta: forgot about `{name}`, but did not remove its own installation at {location} \
+             (it manages its own uninstall — see the tool's docs)."
         );
         return Ok(());
     }
 
-    let path = std::path::Path::new(&installed.location);
+    let path = std::path::Path::new(&location);
     if path.exists() {
         std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
     }
     state.save()?;
-    println!("porta: removed `{name}` ({})", installed.location);
+    println!("porta: removed `{name}` ({location})");
     Ok(())
 }
 
@@ -169,6 +170,6 @@ fn cmd_which(name: &str) -> Result<()> {
         .tools
         .get(name)
         .with_context(|| format!("`{name}` is not installed"))?;
-    println!("{}", installed.location);
+    println!("{}", installed.resolved_location());
     Ok(())
 }

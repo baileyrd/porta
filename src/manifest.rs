@@ -29,6 +29,10 @@ pub struct Tool {
     pub name: String,
     #[serde(default)]
     pub display_name: Option<String>,
+    /// Name of the installed command when it differs from `name` (the `ai`
+    /// tool installs a binary called `claude`). Defaults to `name`.
+    #[serde(default)]
+    pub bin_name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
@@ -42,6 +46,10 @@ pub struct Tool {
 impl Tool {
     pub fn label(&self) -> &str {
         self.display_name.as_deref().unwrap_or(&self.name)
+    }
+
+    pub fn bin_name(&self) -> &str {
+        self.bin_name.as_deref().unwrap_or(&self.name)
     }
 }
 
@@ -69,16 +77,41 @@ pub struct ScriptTarget {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BinarySpec {
+    /// A concrete version ("14.1.1"), or "latest" together with
+    /// `version_url` to resolve the current version at install time.
     pub version: String,
+    /// URL whose response body is the current version string. Fetched only
+    /// when `version = "latest"`; a pinned version never touches it, so a
+    /// user manifest can pin for reproducibility.
+    #[serde(default)]
+    pub version_url: Option<String>,
     pub targets: HashMap<String, BinaryTarget>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BinaryTarget {
+    /// Download URL; `{version}` is replaced with the (resolved) version.
     pub url: String,
     pub archive: ArchiveKind,
-    /// Path to the binary inside the extracted archive.
-    pub binary_path: String,
+    /// Path to the binary inside the extracted archive. Ignored for
+    /// `archive = "raw"` (the download *is* the binary).
+    #[serde(default)]
+    pub binary_path: Option<String>,
+    /// Optional SHA-256 verification of the downloaded file.
+    #[serde(default)]
+    pub checksum: Option<ChecksumSpec>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChecksumSpec {
+    /// URL of the checksum document; `{version}` is replaced like in `url`.
+    pub url: String,
+    /// If set, the document is JSON and this dotted path (e.g.
+    /// `platforms.linux-x64.checksum`) locates the hex digest. If unset,
+    /// the document's first whitespace-separated token is the digest
+    /// (the common `<hex>  <filename>` format).
+    #[serde(default)]
+    pub json_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -159,6 +192,39 @@ pub fn expand_tilde(path: &str) -> std::path::PathBuf {
     }
 }
 
+/// Substitute the `{version}` placeholder in a manifest URL.
+pub fn template_url(url: &str, version: &str) -> String {
+    url.replace("{version}", version)
+}
+
+/// A fetched "latest" version string must look like a version — reject an
+/// HTML error page or empty body before it gets templated into URLs.
+pub fn validate_version_string(s: &str) -> Result<String> {
+    let v = s.trim();
+    let plausible = !v.is_empty()
+        && v.len() < 64
+        && v.chars().next().is_some_and(|c| c.is_ascii_digit())
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'));
+    if !plausible {
+        bail!("version endpoint returned something that doesn't look like a version: {v:.80?}");
+    }
+    Ok(v.to_string())
+}
+
+/// Walk a dotted path (`platforms.linux-x64.checksum`) through a JSON
+/// document and return the string at the end of it.
+pub fn json_string_at_path<'a>(doc: &'a serde_json::Value, path: &str) -> Result<&'a str> {
+    let mut node = doc;
+    for key in path.split('.') {
+        node = node
+            .get(key)
+            .with_context(|| format!("JSON key `{key}` not found (path `{path}`)"))?;
+    }
+    node.as_str()
+        .with_context(|| format!("value at JSON path `{path}` is not a string"))
+}
+
 pub fn require_binary_target<'a>(spec: &'a BinarySpec, target: &str) -> Result<&'a BinaryTarget> {
     spec.targets.get(target).with_context(|| {
         format!(
@@ -195,6 +261,31 @@ mod tests {
     fn current_target_has_expected_shape() {
         let target = current_target();
         assert!(target.contains('-'), "target should be `os-arch`: {target}");
+    }
+
+    #[test]
+    fn version_strings_are_validated() {
+        assert_eq!(validate_version_string("2.1.202\n").unwrap(), "2.1.202");
+        assert_eq!(validate_version_string("14.1.1").unwrap(), "14.1.1");
+        assert!(validate_version_string("").is_err());
+        assert!(validate_version_string("<html>error</html>").is_err());
+        assert!(validate_version_string("v with spaces").is_err());
+    }
+
+    #[test]
+    fn url_templating_and_json_path() {
+        assert_eq!(
+            template_url("https://x/{version}/linux-x64/claude", "2.1.202"),
+            "https://x/2.1.202/linux-x64/claude"
+        );
+        let doc: serde_json::Value =
+            serde_json::from_str(r#"{"platforms": {"linux-x64": {"checksum": "abc123"}}}"#)
+                .unwrap();
+        assert_eq!(
+            json_string_at_path(&doc, "platforms.linux-x64.checksum").unwrap(),
+            "abc123"
+        );
+        assert!(json_string_at_path(&doc, "platforms.nope.checksum").is_err());
     }
 
     #[test]

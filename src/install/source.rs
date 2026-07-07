@@ -50,7 +50,7 @@ pub fn install(tool: &Tool, spec: &SourceSpec) -> Result<Outcome> {
         );
     }
 
-    let dest_bin = crate::paths::bin_dir().join(binary_file_name(&tool.name));
+    let dest_bin = crate::paths::bin_dir().join(binary_file_name(tool.bin_name()));
     std::fs::create_dir_all(crate::paths::bin_dir())?;
     std::fs::copy(&built, &dest_bin)
         .with_context(|| format!("copying {} to {}", built.display(), dest_bin.display()))?;
