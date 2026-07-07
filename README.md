@@ -77,6 +77,18 @@ it.
   environment so they travel with it (see [Dotfiles](#dotfiles)).
 - **`porta which <name>`** / **`porta path`** — small utilities.
 
+## Built-in tools
+
+| name | installs | how |
+|---|---|---|
+| `ai` | `claude` ([Claude Code](https://claude.com/claude-code)) | checksum-verified binary from Anthropic's release endpoint; `latest` resolved at install time |
+| `gh` | `gh` ([GitHub CLI](https://cli.github.com)) | release archive, SHA-256-verified against gh's combined `checksums.txt` (pinned version — bump in the manifest) |
+| `rush` | `rush` ([a bash-compatible shell in Rust](https://github.com/baileyrd/rush)) | source tarball → `cargo build` — no git needed |
+| `ripgrep` | `rg` | release archive, with a build-from-source fallback |
+
+`porta list` shows the same list plus anything you've added, and
+[Extending the manifest](#extending-the-manifest) covers adding your own.
+
 ## Where things land
 
 | What | Where |
