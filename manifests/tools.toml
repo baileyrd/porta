@@ -3,7 +3,7 @@
 # Each [[tool]] declares one or more install strategies:
 #   - [tool.script]  run the vendor's own official no-admin installer
 #   - [tool.binary]  download a prebuilt archive for the current OS/arch
-#   - [tool.source]  git clone + build locally
+#   - [tool.source]  download a source tarball (or git clone) + build locally
 #
 # `porta install <name>` uses `script` if present, otherwise tries `binary`
 # and falls back to `source` automatically. `--strategy` forces one.
@@ -59,6 +59,73 @@ checksum = { url = "https://downloads.claude.ai/claude-code-releases/{version}/m
 
 
 [[tool]]
+name = "gh"
+display_name = "GitHub CLI"
+description = "GitHub's official CLI — PRs, issues, releases, auth — from the terminal."
+
+# GitHub doesn't expose a plain-text latest-version endpoint, so this entry
+# pins a release; bump `version` here (or override it in ~/.porta/tools.toml)
+# to update. Asset names follow gh's release convention:
+#   gh_{version}_<os>_<arch>.{tar.gz|zip}
+# and every asset's SHA-256 is listed in the combined gh_{version}_checksums.txt.
+[tool.binary]
+version = "2.96.0"
+
+[tool.binary.targets.linux-x86_64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.tar.gz"
+archive = "tar.gz"
+binary_path = "bin/gh"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.linux-aarch64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_arm64.tar.gz"
+archive = "tar.gz"
+binary_path = "bin/gh"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.macos-x86_64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_macOS_amd64.zip"
+archive = "zip"
+binary_path = "bin/gh"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.macos-aarch64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_macOS_arm64.zip"
+archive = "zip"
+binary_path = "bin/gh"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.windows-x86_64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_windows_amd64.zip"
+archive = "zip"
+binary_path = "bin/gh.exe"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.windows-aarch64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_windows_arm64.zip"
+archive = "zip"
+binary_path = "bin/gh.exe"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+
+[[tool]]
+name = "rush"
+display_name = "rush"
+description = "A small, bash-compatible shell in Rust — a shell that lives inside the environment."
+
+# Built from a source tarball (no git needed on the host; requires cargo).
+# rush publishes no release binaries yet, so this tracks the main branch;
+# when rush ships prebuilt releases this entry can gain a [tool.binary]
+# fast path.
+[tool.source]
+repo = "https://github.com/baileyrd/rush"
+git_ref = "main"
+archive_url = "https://codeload.github.com/baileyrd/rush/tar.gz/refs/heads/{ref}"
+build_cmd = ["cargo", "build", "--release"]
+binary_path = "target/release/rush"
+
+
+[[tool]]
 name = "ripgrep"
 display_name = "ripgrep"
 description = "Fast recursive search (rg) — a demonstration binary/source tool entry."
@@ -94,5 +161,8 @@ binary_path = "ripgrep-14.1.1-x86_64-pc-windows-msvc/rg.exe"
 [tool.source]
 repo = "https://github.com/BurntSushi/ripgrep"
 git_ref = "14.1.1"
+# Tarball download instead of `git clone`, so building from source needs no
+# git on the host — only the build toolchain named in build_cmd.
+archive_url = "https://codeload.github.com/BurntSushi/ripgrep/tar.gz/refs/tags/{ref}"
 build_cmd = ["cargo", "build", "--release", "--bin", "rg"]
 binary_path = "target/release/rg"

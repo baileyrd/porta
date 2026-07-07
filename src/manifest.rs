@@ -108,8 +108,10 @@ pub struct ChecksumSpec {
     pub url: String,
     /// If set, the document is JSON and this dotted path (e.g.
     /// `platforms.linux-x64.checksum`) locates the hex digest. If unset,
-    /// the document's first whitespace-separated token is the digest
-    /// (the common `<hex>  <filename>` format).
+    /// the document is `sha256sum`-format text: the line whose filename
+    /// matches the downloaded asset wins (so a combined `checksums.txt`
+    /// covering every release asset works), with a single-line document's
+    /// first token as the fallback.
     #[serde(default)]
     pub json_path: Option<String>,
 }
@@ -129,6 +131,13 @@ pub struct SourceSpec {
     pub repo: String,
     #[serde(default)]
     pub git_ref: Option<String>,
+    /// URL of a source tarball (`.tar.gz`) for this ref — the forge-style
+    /// `<repo>/archive/refs/tags/<ref>.tar.gz`. When present, porta
+    /// downloads and extracts it instead of `git clone`, so building from
+    /// source needs no `git` on the host. `{ref}` is replaced with
+    /// `git_ref`.
+    #[serde(default)]
+    pub archive_url: Option<String>,
     pub build_cmd: Vec<String>,
     /// Path to the built binary, relative to the repo root.
     pub binary_path: String,
@@ -255,6 +264,7 @@ mod tests {
         let manifest = load_builtin().expect("builtin manifest parses");
         validate(&manifest).expect("builtin manifest is valid");
         assert!(manifest.find("ai").is_some(), "expected an `ai` tool entry");
+        assert!(manifest.find("gh").is_some(), "expected a `gh` tool entry");
     }
 
     #[test]

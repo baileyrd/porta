@@ -1,13 +1,14 @@
-//! The `source` strategy: `git clone` a tool's repository and build it
-//! locally with whatever command the manifest specifies (typically
-//! `cargo build --release`). Requires the relevant toolchain to already be
-//! on `PATH` — porta doesn't install compilers itself, only what it builds
-//! with them.
+//! The `source` strategy: obtain a tool's source — preferably by
+//! downloading a release tarball (`archive_url`, no `git` needed on the
+//! host), else by `git clone` — and build it locally with whatever command
+//! the manifest specifies (typically `cargo build --release`). Requires
+//! the relevant build toolchain to already be on `PATH`; that prerequisite
+//! is checked up front with a clear error, never assumed.
 
 use crate::install::{binary_file_name, make_executable, Outcome, Strategy};
 use crate::manifest::{SourceSpec, Tool};
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn install(tool: &Tool, spec: &SourceSpec) -> Result<Outcome> {
@@ -28,21 +29,34 @@ pub fn install(tool: &Tool, spec: &SourceSpec) -> Result<Outcome> {
             .with_context(|| format!("clearing stale checkout at {}", checkout_dir.display()))?;
     }
 
-    println!(
-        "porta: cloning `{}` from {} to build from source",
-        tool.label(),
-        spec.repo
-    );
-    clone(spec, &checkout_dir)?;
+    let src_root = match &spec.archive_url {
+        Some(archive_url) => fetch_source_tarball(tool, spec, archive_url, &checkout_dir)?,
+        None => {
+            which("git").with_context(|| {
+                format!(
+                    "`{}` has no `archive_url`, so building it from source needs `git` on PATH \
+                     (add an archive_url to the manifest entry to remove that requirement)",
+                    tool.name
+                )
+            })?;
+            println!(
+                "porta: cloning `{}` from {} to build from source",
+                tool.label(),
+                spec.repo
+            );
+            clone(spec, &checkout_dir)?;
+            checkout_dir.clone()
+        }
+    };
 
     println!(
         "porta: building `{}` ({})",
         tool.label(),
         spec.build_cmd.join(" ")
     );
-    run_build(&spec.build_cmd, &checkout_dir)?;
+    run_build(&spec.build_cmd, &src_root)?;
 
-    let built = checkout_dir.join(&spec.binary_path);
+    let built = src_root.join(&spec.binary_path);
     if !built.exists() {
         bail!(
             "build succeeded but expected binary was not found at {}",
@@ -62,6 +76,41 @@ pub fn install(tool: &Tool, spec: &SourceSpec) -> Result<Outcome> {
         strategy: Strategy::Source,
         location: dest_bin.display().to_string(),
     })
+}
+
+/// Download and extract a source tarball, returning the source tree root
+/// (forge tarballs nest everything under `<repo>-<ref>/`).
+fn fetch_source_tarball(
+    tool: &Tool,
+    spec: &SourceSpec,
+    archive_url: &str,
+    checkout_dir: &Path,
+) -> Result<PathBuf> {
+    let url = match &spec.git_ref {
+        Some(git_ref) => archive_url.replace("{ref}", git_ref),
+        None => archive_url.to_string(),
+    };
+    if url.contains("{ref}") {
+        bail!(
+            "`{}`'s archive_url contains {{ref}} but the entry sets no git_ref",
+            tool.name
+        );
+    }
+
+    println!(
+        "porta: downloading `{}` source tarball ({url})",
+        tool.label()
+    );
+    let tarball = checkout_dir.join("source.tar.gz");
+    crate::download::download_to_file(&url, &tarball)
+        .with_context(|| format!("downloading {url}"))?;
+
+    let extract_dir = checkout_dir.join("src");
+    crate::archive::extract(&tarball, crate::manifest::ArchiveKind::TarGz, &extract_dir)
+        .with_context(|| format!("extracting {}", tarball.display()))?;
+    std::fs::remove_file(&tarball).ok();
+
+    crate::archive::source_root(&extract_dir)
 }
 
 fn clone(spec: &SourceSpec, dest: &Path) -> Result<()> {

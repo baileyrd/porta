@@ -23,6 +23,9 @@ toml = "1"
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
 anyhow = "1"
 sha2 = "0.11.0"
+flate2 = "1.1.9"
+tar = "0.4.46"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [profile.release]
 opt-level = "z"
