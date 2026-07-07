@@ -64,6 +64,25 @@ it.
   installer manages its own updates/uninstall.
 - **`porta which <name>`** / **`porta path`** — small utilities.
 
+## Where things land
+
+| What | Where |
+|---|---|
+| porta's home | `~/.porta` (macOS/Linux) / `%LOCALAPPDATA%\porta` (Windows); override with `$PORTA_HOME` |
+| `binary`/`source` tool installs | `~/.porta/bin/<tool>` — the one directory porta puts on PATH |
+| download cache | `~/.porta/cache/<tool>/<version>/` (reinstalling a cached version is offline) |
+| source-build checkouts | `~/.porta/tools/<tool>-src` (recreated per install) |
+| install registry | `~/.porta/state.json` |
+| `script` tool installs | wherever the vendor's installer puts them — Claude Code uses `~/.local/bin`, which porta also adds to PATH |
+
+## Documentation
+
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — module map, install
+  flow, PATH-wiring mechanics, TLS trust policy, design trade-offs.
+- **[docs/MANIFEST.md](docs/MANIFEST.md)** — full manifest schema reference:
+  every field of the `script`/`binary`/`source` strategies, target keys,
+  merge rules, and a worked example of adding your own tool.
+
 ## Extending the manifest
 
 porta's built-in tool list lives in [`manifests/tools.toml`](manifests/tools.toml).
