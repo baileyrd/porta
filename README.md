@@ -25,9 +25,11 @@ irm https://raw.githubusercontent.com/baileyrd/porta/main/install.ps1 | iex
 ```
 
 This installs the `porta` CLI itself, wires its `bin/` directory onto your
-user `PATH`, and installs [Claude Code](https://claude.com/claude-code) via
-its own official native installer. Restart your shell afterwards (or run
-`porta path` to print the PATH line to source immediately).
+user `PATH`, and downloads [Claude Code](https://claude.com/claude-code)
+(checksum-verified, from Anthropic's official release endpoint) into
+`~/.porta/bin/claude` — inside the environment, so it travels with it.
+Restart your shell afterwards (or run `porta path` to print the PATH line
+to source immediately).
 
 Don't want the AI CLI installed automatically? Set `PORTA_SKIP_AI=1` before
 running the installer, and run `porta install ai` yourself whenever you want
@@ -41,15 +43,21 @@ it.
   `HKCU\Environment`, on Windows — never the machine-wide PATH).
 - **`porta install <name>`** — installs a tool from the
   [manifest](manifests/tools.toml) using whichever strategy it declares:
-  - **`script`** — runs the tool's own official no-admin installer (this is
-    how the bundled AI CLI, `ai` → Claude Code, is installed: porta just
-    fetches and runs `https://claude.ai/install.sh` / `install.ps1`, exactly
-    what [Anthropic's docs](https://code.claude.com/docs/en/setup) recommend,
-    and makes sure the directory it installs into ends up on `PATH`).
-  - **`binary`** — downloads a prebuilt release archive for your OS/arch and
-    copies the binary into `~/.porta/bin`.
+  - **`binary`** — downloads a prebuilt release (raw binary or archive) for
+    your OS/arch, verifies its SHA-256 when the manifest publishes one, and
+    places the binary in `~/.porta/bin`. This is how the bundled AI CLI is
+    installed: `ai` pulls the real `claude` binary from the same release
+    endpoint Anthropic's official installer uses
+    (`downloads.claude.ai/claude-code-releases`), checksum-verified, into
+    `~/.porta/bin/claude` — fully inside the environment, so it travels
+    with it.
   - **`source`** — `git clone`s the tool and builds it locally (e.g. via
     `cargo build --release`). Requires the relevant toolchain.
+  - **`script`** — runs a tool's own official no-admin installer, for tools
+    where that's the only sensible path. Note these installs land wherever
+    the vendor's installer puts them (outside `~/.porta`), so they are the
+    one thing that does *not* travel when you copy the environment — prefer
+    `binary` for anything that must stay portable.
 
   A tool can declare both `binary` and `source`; `porta install` tries the
   binary first and automatically falls back to building from source if no
@@ -59,9 +67,9 @@ it.
   what's installed and how.
 - **`porta list`** — every tool in the manifest, and whether it's installed.
 - **`porta uninstall <name>`** — removes a `binary`/`source` install. For
-  `script`-installed tools (like Claude Code) this only forgets porta's own
-  record of it — porta never deletes a vendor's own installation, since that
-  installer manages its own updates/uninstall.
+  `script`-installed tools this only forgets porta's own record of it —
+  porta never deletes a vendor's own installation, since that installer
+  manages its own updates/uninstall.
 - **`porta which <name>`** / **`porta path`** — small utilities.
 
 ## Where things land
@@ -69,11 +77,43 @@ it.
 | What | Where |
 |---|---|
 | porta's home | `~/.porta` (macOS/Linux) / `%LOCALAPPDATA%\porta` (Windows); override with `$PORTA_HOME` |
-| `binary`/`source` tool installs | `~/.porta/bin/<tool>` — the one directory porta puts on PATH |
+| `binary`/`source` tool installs | `~/.porta/bin/<tool>` — the one directory porta puts on PATH (the `ai` tool installs as `~/.porta/bin/claude`) |
 | download cache | `~/.porta/cache/<tool>/<version>/` (reinstalling a cached version is offline) |
 | source-build checkouts | `~/.porta/tools/<tool>-src` (recreated per install) |
-| install registry | `~/.porta/state.json` |
-| `script` tool installs | wherever the vendor's installer puts them — Claude Code uses `~/.local/bin`, which porta also adds to PATH |
+| install registry | `~/.porta/state.json` (paths stored relative to `$PORTA_HOME`, so the file survives a move) |
+| `script` tool installs | wherever the vendor's installer puts them — the one non-portable exception |
+
+## Moving the environment to another machine
+
+The environment is a single directory, so moving it is a copy:
+
+```sh
+# on the old machine
+tar -czf porta-env.tar.gz -C ~ .porta
+
+# on the new machine (same OS/arch)
+tar -xzf porta-env.tar.gz -C ~
+~/.porta/bin/porta init      # wires PATH on the new machine
+```
+
+Everything installed via `binary`/`source` — including the `claude` binary —
+comes along, and `state.json` records locations relative to `$PORTA_HOME`,
+so `porta doctor`/`which`/`uninstall` keep working even when the new
+machine's home directory has a different path.
+
+Caveats:
+
+- The copy is per-OS/arch: a `~/.porta` built on x86-64 Linux won't run on
+  an ARM Mac. Re-run the installs there instead (`porta install ai`).
+- Claude Code's *login and settings* live in `~/.claude` (or
+  `$CLAUDE_CONFIG_DIR`), not inside `~/.porta` — copy that directory too if
+  you want to carry your session, or just log in again on the new machine.
+- porta's copy of `claude` is version-pinned at install time. Update it
+  with `porta install ai` (which re-resolves the latest release); Claude
+  Code's own background auto-updater targets the vendor layout in
+  `~/.local`, not porta's copy, so consider setting `DISABLE_AUTOUPDATER=1`
+  in [Claude Code settings](https://code.claude.com/docs/en/settings) to
+  silence it.
 
 ## Documentation
 
@@ -151,9 +191,12 @@ Windows: delete `%LOCALAPPDATA%\porta` and remove porta's entry from your
 user `Path` (`Settings → Environment Variables`, or
 `[Environment]::SetEnvironmentVariable('Path', ..., 'User')`).
 
-This doesn't touch tools installed via the `script` strategy (e.g. Claude
-Code) — see [Claude Code's own uninstall instructions](https://code.claude.com/docs/en/setup#uninstall-claude-code)
-for that.
+Deleting `~/.porta` removes everything porta installed, including its copy
+of Claude Code. Two things live outside it: Claude Code's own settings and
+login (`~/.claude`, `~/.claude.json` — see
+[Claude Code's uninstall docs](https://code.claude.com/docs/en/setup#uninstall-claude-code)),
+and anything you installed via the `script` strategy, which the vendor's
+own uninstaller manages.
 
 ## Building from source
 

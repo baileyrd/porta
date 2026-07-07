@@ -22,6 +22,7 @@ toml = "1"
 # installed (e.g. a TLS-inspecting proxy) without needing admin rights to add it.
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
 anyhow = "1"
+sha2 = "0.11.0"
 
 [profile.release]
 opt-level = "z"
