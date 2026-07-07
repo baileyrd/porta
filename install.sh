@@ -18,6 +18,8 @@
 #     installed via rustup (no admin).
 #
 # Optional: `... | sh -s -- <version>` installs a specific tagged release.
+# Optional: PORTA_HOME=/opt/tools/porta designates a custom root — needed
+# only for this one command; the installed binary self-locates afterwards.
 set -eu
 
 REPO="baileyrd/porta"

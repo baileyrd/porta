@@ -265,7 +265,7 @@ fn move_into_store(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-fn copy_recursively(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn copy_recursively(from: &Path, to: &Path) -> Result<()> {
     let meta =
         std::fs::symlink_metadata(from).with_context(|| format!("reading {}", from.display()))?;
     if meta.is_dir() {
