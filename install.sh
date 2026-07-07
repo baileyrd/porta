@@ -63,6 +63,39 @@ fetch() {
   fi
 }
 
+# verify_sha256 <file> <asset-name> <base-url>: check the download against
+# the release's combined checksums.txt. Best-effort by design — a host
+# without sha256sum/shasum, or a release without checksums.txt, skips with
+# a note (verification must not raise the "assume nothing" host floor) —
+# but an actual mismatch is fatal, never a silent fall-through.
+verify_sha256() {
+  vfile="$1"; vasset="$2"; vbase="$3"
+  if command -v sha256sum >/dev/null 2>&1; then
+    hasher="sha256sum"
+  elif command -v shasum >/dev/null 2>&1; then
+    hasher="shasum -a 256"
+  else
+    log "note: no sha256sum/shasum on this host; skipping checksum verification"
+    return 0
+  fi
+  sums="$(mktemp)"
+  if ! fetch "$vbase/checksums.txt" "$sums" 2>/dev/null; then
+    rm -f "$sums"
+    log "note: release publishes no checksums.txt; skipping checksum verification"
+    return 0
+  fi
+  expected="$(awk -v name="$vasset" '$2 == name || $2 == ("*" name) {print $1; exit}' "$sums")"
+  rm -f "$sums"
+  if [ -z "$expected" ]; then
+    log "note: checksums.txt has no entry for $vasset; skipping checksum verification"
+    return 0
+  fi
+  actual="$($hasher "$vfile" | awk '{print $1}')"
+  [ "$actual" = "$expected" ] \
+    || die "checksum mismatch for $vasset: expected $expected, got $actual — refusing to install it"
+  log "checksum verified ($vasset)"
+}
+
 detect_os() {
   case "$(uname -s)" in
     Linux) echo linux ;;
@@ -94,6 +127,7 @@ try_install_prebuilt() {
   # Preferred asset: the raw binary — needs no extractor at all.
   if fetch "$base/porta-$os-$arch" "$tmp/porta" 2>/dev/null; then
     log "found prebuilt release binary (porta-$os-$arch)"
+    verify_sha256 "$tmp/porta" "porta-$os-$arch" "$base"
     mkdir -p "$BIN_DIR"
     chmod 0755 "$tmp/porta"
     mv "$tmp/porta" "$BIN_DIR/porta"

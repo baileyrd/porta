@@ -1,0 +1,109 @@
+# Release: publish prebuilt porta binaries on tag push (issue #2).
+#
+# Assets are RAW binaries named exactly what the bootstrap installers try
+# first (`porta-<os>-<arch>[.exe]` — see try_install_prebuilt in install.sh
+# / Try-InstallPrebuilt in install.ps1), so a prebuilt bootstrap needs
+# nothing on the host but a downloader. Linux builds are static musl, so
+# one binary runs on any distro (glibc or not) — porta's TLS is pure-Rust
+# rustls/ring, so there's no OpenSSL to drag along.
+#
+# A combined sha256sum-format checksums.txt is published alongside; porta's
+# own checksum verification understands that format, so a future
+# `porta self-update` can reuse it as-is.
+#
+# Cut a release by pushing a tag: git tag v0.1.0 && git push origin v0.1.0
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset: porta-linux-x86_64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            asset: porta-linux-aarch64
+          # Both mac targets build on the arm runner — Xcode links either
+          # architecture, so no Intel runner is needed.
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            asset: porta-macos-aarch64
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            asset: porta-macos-x86_64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: porta-windows-x86_64.exe
+          - runner: windows-latest
+            target: aarch64-pc-windows-msvc
+            asset: porta-windows-aarch64.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl toolchain
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Stage raw binary under its asset name
+        shell: bash
+        run: |
+          bin=porta
+          case "${{ matrix.target }}" in *windows*) bin=porta.exe ;; esac
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/$bin" "dist/${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    # Requires every platform build to have succeeded: a release with a
+    # silently missing platform would strand that platform's bootstrap on
+    # the slow source-build path without anyone noticing.
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate combined checksums.txt
+        run: |
+          cd dist
+          sha256sum porta-* > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "porta $GITHUB_REF_NAME" \
+            --verify-tag \
+            --generate-notes \
+            --notes "Raw prebuilt binaries for the bootstrap installers (\`install.sh\` / \`install.ps1\`); \`checksums.txt\` is sha256sum-format. Linux binaries are static (musl) and run on any distro."
