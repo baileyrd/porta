@@ -34,11 +34,20 @@ having the same property — see below).
   tools.toml      <- OPTIONAL user manifest, merged over the built-in one
 ```
 
+This layout is the portability unit: copy `~/.porta` to another machine
+(same OS/arch), run `porta init` there, and the environment — including the
+`claude` binary the `ai` tool installs — works. Two details make that hold:
+`state.json` stores locations under `$PORTA_HOME` with a literal
+`${PORTA_HOME}` prefix rather than an absolute path (expanded against the
+*current* home on read), and the `ai` tool downloads the real binary into
+`bin/` instead of delegating to a vendor installer.
+
 `script`-strategy tools are the deliberate exception to `bin/`: the vendor's
-installer owns its install location (Claude Code uses `~/.local/bin` and its
-own background updater), so porta records that directory in `state.json` and
-adds it to PATH rather than copying the binary — copying would break the
-vendor's update mechanism.
+installer owns its install location, so porta records that directory in
+`state.json` and adds it to PATH rather than copying the binary — copying
+would break the vendor's update mechanism. The corollary is that `script`
+installs live outside `$PORTA_HOME` and therefore do *not* travel with the
+environment; they exist for tools where no direct download is practical.
 
 ## Module map
 
@@ -76,9 +85,17 @@ src/
    - else `script` wins if declared (it's the vendor's blessed path);
    - else try `binary`, and on *any* failure (no target for this os-arch,
      download error, extraction error) fall back to `source` if declared.
-3. The strategy runs and returns an `Outcome { version, strategy, location }`.
-4. `state.json` records the outcome; PATH wiring re-runs (idempotent), and
-   for `script` outcomes the vendor's install dir is added to PATH as well.
+3. For `binary`: `version = "latest"` + `version_url` resolves the current
+   version over the network (validated to look like a version string before
+   it's templated into `{version}` placeholders in URLs); a pinned version
+   skips that. If the target declares a `checksum`, the download's SHA-256
+   is verified against the published digest — including on cache hits, so a
+   corrupted or tampered cache entry can never be installed.
+4. The strategy runs and returns an `Outcome { version, strategy, location }`.
+5. `state.json` records the outcome (locations under `$PORTA_HOME` stored
+   as `${PORTA_HOME}/...` so the file survives a machine move); PATH wiring
+   re-runs (idempotent), and for `script` outcomes the vendor's install dir
+   is added to PATH as well.
 
 ## PATH wiring details (`shell_init.rs`)
 
@@ -137,11 +154,16 @@ audit. The trade-off is a runtime dependency on those tools existing, which
 
 `cargo test` covers the pieces with real logic: manifest parsing/validation
 (including that the embedded manifest is valid and has the `ai` entry),
-tilde expansion, PATH-block idempotency and content preservation, tar.gz
-round-trip extraction, and `locate`'s tolerance of unpredictable archive
-top-level directory names. Install strategies are exercised end-to-end
-manually (`porta install ai` runs the real Claude Code installer) since they
-are thin compositions of the tested parts plus network/process calls.
+tilde expansion, version-string validation, `{version}` URL templating,
+dotted-path JSON checksum lookup, SHA-256 against a FIPS test vector,
+`${PORTA_HOME}` state-path round-tripping, PATH-block idempotency and
+content preservation, tar.gz round-trip extraction, and `locate`'s tolerance
+of unpredictable archive top-level directory names. Install strategies are
+exercised end-to-end manually (`porta install ai` downloads and
+checksum-verifies the real `claude` binary; a deliberately corrupted cache
+entry is rejected; a copied `$PORTA_HOME` runs on a different home path)
+since they are thin compositions of the tested parts plus network/process
+calls.
 
 ## The bootstrap installers
 

@@ -21,6 +21,9 @@ manifest is rejected with an error naming the offending tool.
 [[tool]]
 name = "ripgrep"          # required; the `porta install <name>` key
 display_name = "ripgrep"  # optional; used in human-facing messages
+bin_name = "rg"           # optional; installed command name when it differs
+                          # from `name` (the `ai` tool installs `claude`);
+                          # defaults to `name`
 description = "Fast recursive search"  # optional; shown by `porta list`
 
 [tool.script]   # zero or one of each strategy section
@@ -30,13 +33,20 @@ description = "Fast recursive search"  # optional; shown by `porta list`
 
 ## Strategy: `script` — run the vendor's official installer
 
-For tools whose vendor already ships a trustworthy, portable, no-admin
-installer (Claude Code is the motivating case). porta downloads the script
-over HTTPS, writes it under `~/.porta/cache/installer-scripts/`, marks it
-`0700` (Unix), and runs it with the interpreter you name. porta does **not**
-copy the resulting binary into `~/.porta/bin` — the vendor's installer owns
-its install directory and usually its own update mechanism — instead the
+For tools whose vendor ships a trustworthy no-admin installer and where a
+direct binary download isn't practical. porta downloads the script over
+HTTPS, writes it under `~/.porta/cache/installer-scripts/`, marks it `0700`
+(Unix), and runs it with the interpreter you name. porta does **not** copy
+the resulting binary into `~/.porta/bin` — the vendor's installer owns its
+install directory and usually its own update mechanism — instead the
 `installs_to` directory is added to PATH alongside porta's own `bin/`.
+
+**Portability caveat:** because the install lands outside `$PORTA_HOME`,
+`script` tools do not travel when you copy the environment to another
+machine — they must be reinstalled there. Prefer `binary` when a tool
+publishes raw binaries or archives (the built-in `ai` entry switched from
+`script` to `binary` for exactly this reason; the example below shows what
+its script form looked like).
 
 ```toml
 [tool.script]
@@ -71,13 +81,17 @@ so reinstalling the same version is offline.
 
 ```toml
 [tool.binary]
-version = "14.1.1"             # required; recorded in state.json and used
-                               # as the cache key
+version = "14.1.1"             # a pinned version, or "latest" (see below);
+                               # recorded in state.json, used as cache key
+# version_url = "https://..."  # only with version = "latest": GET this URL
+                               # to resolve the current version string at
+                               # install time
 
 [tool.binary.targets.linux-x86_64]
-url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz"
+url = "https://github.com/BurntSushi/ripgrep/releases/download/{version}/ripgrep-{version}-x86_64-unknown-linux-musl.tar.gz"
 archive = "tar.gz"             # "tar.gz" | "zip" | "raw"
 binary_path = "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
+# checksum = { url = "https://.../{version}/manifest.json", json_path = "platforms.linux-x64.checksum" }
 ```
 
 - **Target keys** are `<os>-<arch>` from Rust's `std::env::consts::{OS,ARCH}`:
@@ -85,13 +99,28 @@ binary_path = "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
   `windows-x86_64`, `windows-aarch64`. Installing on a platform with no
   matching key is an error naming the keys that *do* exist (and triggers the
   source fallback if a `source` section is declared).
+- **Dynamic versions.** With `version = "latest"` and a `version_url`, porta
+  GETs the URL at install time, validates the body looks like a version
+  string, and substitutes it for every `{version}` placeholder in `url` and
+  `checksum.url`. A pinned `version` never touches the network and is also
+  substituted into `{version}` placeholders — so a user manifest can pin an
+  entry that's `latest` in the built-ins just by overriding `version`.
 - **`archive = "raw"`** means the downloaded file *is* the binary — no
-  extraction (common for single-file Go/Rust tool releases).
+  extraction (common for single-file releases; this is how `ai` downloads
+  `claude`). `binary_path` is ignored for raw downloads.
 - **`binary_path`** is the path inside the extracted archive. If the exact
   path doesn't exist (archives often nest under a top-level directory whose
   name embeds a version/target string that's hard to predict), porta searches
   one directory level down for either the relative path or the bare file
   name — so a slightly-wrong prefix still resolves.
+- **`checksum`** enables SHA-256 verification of the downloaded file before
+  anything is installed, and re-verifies cache hits so a corrupted cache can
+  never be installed. `url` points at the checksum document (`{version}`
+  templated like the download URL). With `json_path`, the document is JSON
+  and the dotted path locates the hex digest (e.g.
+  `platforms.linux-x64.checksum` in Claude Code's release manifest);
+  without it, the first whitespace-separated token is taken, matching the
+  common `<hex>  <filename>` format of `*.sha256` files.
 
 ## Strategy: `source` — clone and build
 
@@ -129,7 +158,7 @@ declare it.
 
 | name | strategies | what it is |
 |---|---|---|
-| `ai` | script | Claude Code, via Anthropic's official native installer (`https://claude.ai/install.sh` / `install.ps1`) — the AI CLI the whole environment is built around |
+| `ai` | binary | Claude Code, downloaded checksum-verified from Anthropic's release endpoint (`downloads.claude.ai/claude-code-releases`, the same one the official installer uses) into `~/.porta/bin/claude` — inside the environment, so it moves with it. `version = "latest"` resolves at install time; re-run `porta install ai` to update. Linux targets use the glibc builds; on musl distros (Alpine), override with the `linux-*-musl` URLs in your user manifest. |
 | `ripgrep` | binary + source | fast recursive search; doubles as the worked example of a two-strategy entry |
 
 The built-in list is intentionally minimal: entries ship compiled into the
