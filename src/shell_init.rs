@@ -71,7 +71,7 @@ fn is_current_shell(name: &str) -> bool {
 fn posix_export_block(dirs: &[PathBuf]) -> String {
     let prepend = dirs
         .iter()
-        .map(|d| shell_quote(&d.display().to_string()))
+        .map(|d| double_quoted_path(d))
         .collect::<Vec<_>>()
         .join(":");
     format!("export PATH=\"{prepend}:$PATH\"")
@@ -80,14 +80,37 @@ fn posix_export_block(dirs: &[PathBuf]) -> String {
 fn fish_export_block(dirs: &[PathBuf]) -> String {
     let prepend = dirs
         .iter()
-        .map(|d| shell_quote(&d.display().to_string()))
+        .map(|d| format!("\"{}\"", double_quoted_path(d)))
         .collect::<Vec<_>>()
         .join(" ");
     format!("fish_add_path --prepend {prepend}")
 }
 
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
+/// Render a path for use inside a double-quoted shell string. Directories
+/// under the user's home are written as `$HOME/...` so the rc block itself
+/// stays correct when the whole environment (and the rc file with it) is
+/// copied to a machine with a different home path.
+fn double_quoted_path(dir: &Path) -> String {
+    let home = crate::paths::home_dir();
+    match dir.strip_prefix(&home) {
+        Ok(rest) => format!(
+            "$HOME/{}",
+            escape_in_double_quotes(&rest.display().to_string())
+        ),
+        Err(_) => escape_in_double_quotes(&dir.display().to_string()),
+    }
+}
+
+/// Escape the characters that are special inside POSIX/fish double quotes.
+fn escape_in_double_quotes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if matches!(c, '\\' | '"' | '$' | '`') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Writes `body` between porta's markers in `path`, replacing a previous
@@ -180,6 +203,31 @@ mod tests {
         assert!(!contents.contains("/a:$PATH"));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn path_blocks_are_home_relative_and_unquoted() {
+        let home = crate::paths::home_dir();
+        let under_home = home.join(".porta/bin");
+        let block = posix_export_block(std::slice::from_ref(&under_home));
+
+        // The literal-apostrophe bug: quotes nested inside the double-quoted
+        // export made PATH entries that contained `'` characters.
+        assert!(!block.contains('\''), "no single quotes in: {block}");
+        assert_eq!(block, "export PATH=\"$HOME/.porta/bin:$PATH\"");
+
+        // Outside home: absolute, still unquoted.
+        let outside = PathBuf::from("/opt/porta/bin");
+        assert_eq!(
+            posix_export_block(std::slice::from_ref(&outside)),
+            "export PATH=\"/opt/porta/bin:$PATH\""
+        );
+
+        let fish = fish_export_block(&[under_home, outside]);
+        assert_eq!(
+            fish,
+            "fish_add_path --prepend \"$HOME/.porta/bin\" \"/opt/porta/bin\""
+        );
     }
 
     #[test]

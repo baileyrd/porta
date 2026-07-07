@@ -12,6 +12,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct State {
     #[serde(default)]
     pub tools: HashMap<String, InstalledTool>,
+    /// Home-relative paths of dotfiles tracked in `$PORTA_HOME/dotfiles`
+    /// (see the `dotfiles` module). Relative, so the list survives a move.
+    #[serde(default)]
+    pub dotfiles: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

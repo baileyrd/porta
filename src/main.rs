@@ -1,6 +1,7 @@
 mod archive;
 mod cli;
 mod doctor;
+mod dotfiles;
 mod download;
 mod install;
 mod manifest;
@@ -10,7 +11,7 @@ mod state;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use cli::{Cli, Command};
+use cli::{Cli, Command, DotfilesAction};
 use install::Strategy;
 use state::State;
 
@@ -31,6 +32,16 @@ fn run() -> Result<()> {
         Command::Uninstall { name } => cmd_uninstall(&name),
         Command::Path => cmd_path(),
         Command::Which { name } => cmd_which(&name),
+        Command::Dotfiles { action } => match action {
+            DotfilesAction::Add { paths } => dotfiles::add(&paths),
+            DotfilesAction::Link => {
+                let n = dotfiles::link_all()?;
+                println!("porta: {n} dotfile(s) linked");
+                Ok(())
+            }
+            DotfilesAction::List => dotfiles::list(),
+            DotfilesAction::Remove { path } => dotfiles::remove(&path),
+        },
     }
 }
 
@@ -47,6 +58,13 @@ fn cmd_init(with_ai: bool) -> Result<()> {
             println!("  {t}");
         }
         println!("Restart your shell (or run `porta path` to apply it now) to pick this up.");
+    }
+
+    // Re-link tracked dotfiles — this is what makes `copy ~/.porta; porta
+    // init` bring your configuration along on a new machine.
+    let linked = dotfiles::link_all()?;
+    if linked > 0 {
+        println!("Linked {linked} tracked dotfile(s) into your home directory.");
     }
 
     if with_ai {
