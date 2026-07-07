@@ -118,9 +118,13 @@ binary_path = "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
   never be installed. `url` points at the checksum document (`{version}`
   templated like the download URL). With `json_path`, the document is JSON
   and the dotted path locates the hex digest (e.g.
-  `platforms.linux-x64.checksum` in Claude Code's release manifest);
-  without it, the first whitespace-separated token is taken, matching the
-  common `<hex>  <filename>` format of `*.sha256` files.
+  `platforms.linux-x64.checksum` in Claude Code's release manifest).
+  Without it, the document is `sha256sum`-format text: for a combined
+  `checksums.txt` listing every release asset (gh and most goreleaser
+  projects ship one), porta picks the line whose filename matches the
+  downloaded asset (tolerating the `*` binary-mode marker), and errors
+  rather than guesses if nothing matches; a single-line `.sha256` document
+  just uses its first token.
 
 ## Strategy: `source` — clone and build
 
@@ -159,6 +163,7 @@ declare it.
 | name | strategies | what it is |
 |---|---|---|
 | `ai` | binary | Claude Code, downloaded checksum-verified from Anthropic's release endpoint (`downloads.claude.ai/claude-code-releases`, the same one the official installer uses) into `~/.porta/bin/claude` — inside the environment, so it moves with it. `version = "latest"` resolves at install time; re-run `porta install ai` to update. Linux targets use the glibc builds; on musl distros (Alpine), override with the `linux-*-musl` URLs in your user manifest. |
+| `gh` | binary | the official GitHub CLI, from its release archives with SHA-256 verification against the combined `checksums.txt`. Pinned (GitHub has no plain-text latest-version endpoint); bump `version` to update. |
 | `ripgrep` | binary + source | fast recursive search; doubles as the worked example of a two-strategy entry |
 
 The built-in list is intentionally minimal: entries ship compiled into the

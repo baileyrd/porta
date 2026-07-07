@@ -35,7 +35,14 @@ pub fn install(tool: &Tool, spec: &BinarySpec) -> Result<Outcome> {
     // Verified even for cache hits: it's cheap, and it means a corrupted or
     // tampered cache entry can never be installed.
     if let Some(checksum) = &target.checksum {
-        verify_sha256(&archive_path, checksum, &version, &target_key).with_context(|| {
+        verify_sha256(
+            &archive_path,
+            &archive_file_name,
+            checksum,
+            &version,
+            &target_key,
+        )
+        .with_context(|| {
             format!(
                 "checksum verification failed for {}",
                 archive_path.display()
@@ -101,6 +108,7 @@ fn resolve_version(spec: &BinarySpec) -> Result<String> {
 
 fn verify_sha256(
     file: &std::path::Path,
+    file_name: &str,
     checksum: &manifest::ChecksumSpec,
     version: &str,
     target_key: &str,
@@ -114,11 +122,8 @@ fn verify_sha256(
                 .with_context(|| format!("{url} did not return valid JSON"))?;
             manifest::json_string_at_path(&json, path)?.to_ascii_lowercase()
         }
-        None => doc
-            .split_whitespace()
-            .next()
-            .with_context(|| format!("{url} returned an empty checksum document"))?
-            .to_ascii_lowercase(),
+        None => digest_from_plain_doc(&doc, file_name)
+            .with_context(|| format!("parsing checksum document from {url}"))?,
     };
 
     let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
@@ -131,6 +136,44 @@ fn verify_sha256(
         );
     }
     Ok(())
+}
+
+/// Extract the digest for `file_name` from a plain (non-JSON) checksum
+/// document. Handles both shapes in the wild:
+///
+/// - a single-file `.sha256` document (`<hex>` or `<hex>  <filename>`) —
+///   the first token is the digest;
+/// - a combined `checksums.txt` in `sha256sum` format, one
+///   `<hex>  <filename>` line per release asset (gh, fd, and most goreleaser
+///   projects ship these) — the line whose filename matches wins. A leading
+///   `*` on the filename (sha256sum's binary-mode marker) is tolerated.
+fn digest_from_plain_doc(doc: &str, file_name: &str) -> Result<String> {
+    let lines: Vec<&str> = doc.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    for line in &lines {
+        let mut tokens = line.split_whitespace();
+        let (Some(digest), Some(name)) = (tokens.next(), tokens.next()) else {
+            continue;
+        };
+        if name == file_name || name.strip_prefix('*') == Some(file_name) {
+            return Ok(digest.to_ascii_lowercase());
+        }
+    }
+
+    // No filename matched: only safe to fall back to "first token" when the
+    // document plainly describes a single file.
+    if lines.len() == 1 {
+        let first = lines[0]
+            .split_whitespace()
+            .next()
+            .context("empty checksum document")?;
+        return Ok(first.to_ascii_lowercase());
+    }
+
+    bail!(
+        "checksum document lists {} entries but none match `{file_name}`",
+        lines.len()
+    )
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -158,5 +201,46 @@ mod tests {
             hex(&Sha256::digest(b"abc")),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn plain_checksum_doc_single_file() {
+        // bare digest
+        assert_eq!(
+            digest_from_plain_doc("ABC123\n", "tool.tar.gz").unwrap(),
+            "abc123"
+        );
+        // `<hex>  <filename>` with a matching name
+        assert_eq!(
+            digest_from_plain_doc("abc123  tool.tar.gz\n", "tool.tar.gz").unwrap(),
+            "abc123"
+        );
+        // single line whose filename doesn't match still falls back
+        assert_eq!(
+            digest_from_plain_doc("abc123  renamed.tar.gz\n", "tool.tar.gz").unwrap(),
+            "abc123"
+        );
+    }
+
+    #[test]
+    fn plain_checksum_doc_combined_matches_by_filename() {
+        // the gh_X_checksums.txt shape: one line per release asset
+        let doc = "\
+aaa111  gh_2.96.0_linux_386.tar.gz
+bbb222  gh_2.96.0_linux_amd64.tar.gz
+ccc333 *gh_2.96.0_macOS_arm64.zip
+ddd444  gh_2.96.0_windows_amd64.zip
+";
+        assert_eq!(
+            digest_from_plain_doc(doc, "gh_2.96.0_linux_amd64.tar.gz").unwrap(),
+            "bbb222"
+        );
+        // sha256sum binary-mode `*` prefix is tolerated
+        assert_eq!(
+            digest_from_plain_doc(doc, "gh_2.96.0_macOS_arm64.zip").unwrap(),
+            "ccc333"
+        );
+        // multi-line with no match must error, never guess
+        assert!(digest_from_plain_doc(doc, "gh_2.96.0_linux_arm64.tar.gz").is_err());
     }
 }

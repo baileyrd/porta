@@ -59,6 +59,56 @@ checksum = { url = "https://downloads.claude.ai/claude-code-releases/{version}/m
 
 
 [[tool]]
+name = "gh"
+display_name = "GitHub CLI"
+description = "GitHub's official CLI — PRs, issues, releases, auth — from the terminal."
+
+# GitHub doesn't expose a plain-text latest-version endpoint, so this entry
+# pins a release; bump `version` here (or override it in ~/.porta/tools.toml)
+# to update. Asset names follow gh's release convention:
+#   gh_{version}_<os>_<arch>.{tar.gz|zip}
+# and every asset's SHA-256 is listed in the combined gh_{version}_checksums.txt.
+[tool.binary]
+version = "2.96.0"
+
+[tool.binary.targets.linux-x86_64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.tar.gz"
+archive = "tar.gz"
+binary_path = "bin/gh"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.linux-aarch64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_arm64.tar.gz"
+archive = "tar.gz"
+binary_path = "bin/gh"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.macos-x86_64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_macOS_amd64.zip"
+archive = "zip"
+binary_path = "bin/gh"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.macos-aarch64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_macOS_arm64.zip"
+archive = "zip"
+binary_path = "bin/gh"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.windows-x86_64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_windows_amd64.zip"
+archive = "zip"
+binary_path = "bin/gh.exe"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+[tool.binary.targets.windows-aarch64]
+url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_windows_arm64.zip"
+archive = "zip"
+binary_path = "bin/gh.exe"
+checksum = { url = "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt" }
+
+
+[[tool]]
 name = "ripgrep"
 display_name = "ripgrep"
 description = "Fast recursive search (rg) — a demonstration binary/source tool entry."
