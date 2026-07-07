@@ -15,7 +15,7 @@ its own PATH changes are scoped to your user profile only.
 **macOS / Linux / WSL:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/baileyrd/porta/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/baileyrd/porta/main/install.sh | sh
 ```
 
 **Windows (PowerShell, no WSL needed):**
@@ -51,8 +51,11 @@ it.
     (`downloads.claude.ai/claude-code-releases`), checksum-verified, into
     `~/.porta/bin/claude` — fully inside the environment, so it travels
     with it.
-  - **`source`** — `git clone`s the tool and builds it locally (e.g. via
-    `cargo build --release`). Requires the relevant toolchain.
+  - **`source`** — downloads the tool's source tarball (no `git` needed on
+    the host) — or `git clone`s when no `archive_url` is declared — and
+    builds it locally (e.g. via `cargo build --release`). Requires the
+    build toolchain named in the entry; that's checked with a clear error,
+    never assumed.
   - **`script`** — runs a tool's own official no-admin installer, for tools
     where that's the only sensible path. Note these installs land wherever
     the vendor's installer puts them (outside `~/.porta`), so they are the
@@ -116,22 +119,18 @@ needed.
 ## Bring your own shell
 
 A shell is just another binary, so it can live in the environment like
-everything else. Two examples for `~/.porta/tools.toml`:
+everything else — and one ships in the built-in manifest:
+[rush](https://github.com/baileyrd/rush), a small bash-compatible shell in
+Rust.
 
-```toml
-# A shell you build from source — e.g. rush, a bash-compatible shell in Rust
-[[tool]]
-name = "rush"
-description = "A small, bash-compatible shell written in Rust"
-
-[tool.source]
-repo = "https://github.com/baileyrd/rush"
-build_cmd = ["cargo", "build", "--release"]
-binary_path = "target/release/rush"
+```sh
+porta install rush     # source tarball -> cargo build -> ~/.porta/bin/rush
 ```
 
-`porta install rush` puts it at `~/.porta/bin/rush`, and it travels with
-the environment like any `binary`/`source` tool.
+No `git` is needed (the entry downloads a source tarball); it does need
+`cargo` on PATH, which the bootstrap installer sets up when it builds porta
+from source. The shell then travels with the environment like any other
+`binary`/`source` tool.
 
 **The honest caveat: your *login* shell can't be changed without admin.**
 `chsh` only accepts shells listed in `/etc/shells`, and editing that file
@@ -244,13 +243,17 @@ See [`manifests/tools.toml`](manifests/tools.toml) for a full worked example
   legitimate inspecting proxy and need porta to trust its root CA, set
   `PORTA_TRUST_SYSTEM_CERTS=1` to switch to platform certificate
   verification.
-- **No vendored archive/compression code.** Extraction shells out to `tar`
-  (present by default on Linux, macOS, and Windows 10 1803+) or, for `.zip`
-  where `tar` can't handle it, `unzip` (Unix) / `Expand-Archive` (Windows) —
-  all of which ship with the OS already.
+- **Nothing on the host is assumed present.** Archive extraction
+  (`tar.gz`/`zip`) is built into the porta binary with pure-Rust
+  decompressors and path-traversal guards — no host `tar`, `unzip`, or
+  `Expand-Archive` is ever invoked. Source installs download release
+  tarballs, so no `git` is needed (entries without an `archive_url` fall
+  back to `git clone`, with a clear error if git is missing). The bootstrap
+  script is POSIX `sh` (no bash — stock Alpine works) and needs only a
+  downloader: `curl` or `wget`, whichever exists.
 - **`porta` doesn't manage compilers.** The `source` install strategy
-  assumes the build tool it needs (`cargo`, etc.) is already on `PATH`; it
-  won't install one for you mid-`porta install`. The bootstrap installer
+  requires the build tool named in the entry (`cargo`, etc.) on `PATH` —
+  checked up front with a clear error. The bootstrap installer
   (`install.sh`/`install.ps1`) is the exception — it installs a user-local
   Rust toolchain via [rustup](https://rustup.rs) *just* to build `porta`
   itself, if no prebuilt release matches your platform yet.

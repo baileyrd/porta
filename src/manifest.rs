@@ -131,6 +131,13 @@ pub struct SourceSpec {
     pub repo: String,
     #[serde(default)]
     pub git_ref: Option<String>,
+    /// URL of a source tarball (`.tar.gz`) for this ref — the forge-style
+    /// `<repo>/archive/refs/tags/<ref>.tar.gz`. When present, porta
+    /// downloads and extracts it instead of `git clone`, so building from
+    /// source needs no `git` on the host. `{ref}` is replaced with
+    /// `git_ref`.
+    #[serde(default)]
+    pub archive_url: Option<String>,
     pub build_cmd: Vec<String>,
     /// Path to the built binary, relative to the repo root.
     pub binary_path: String,

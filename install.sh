@@ -1,19 +1,24 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # porta bootstrap installer (macOS, Linux, WSL).
 #
-#   curl -fsSL https://raw.githubusercontent.com/baileyrd/porta/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/baileyrd/porta/main/install.sh | sh
 #
-# Everything this script does is scoped to the current user — it never asks
-# for sudo and never touches a system directory:
-#   - installs the `porta` binary into $PORTA_HOME/bin (default ~/.porta/bin)
-#   - if no prebuilt release is available for this platform yet, builds
-#     porta from source, installing a user-local Rust toolchain via rustup
-#     first if one isn't already on PATH
-#   - runs `porta init` to wire $PORTA_HOME/bin onto PATH for future shells
+# Written for POSIX sh (dash/ash/busybox included) — no bash required.
+# Everything it does is scoped to the current user; it never asks for sudo
+# and never touches a system directory.
 #
-# Optional: `curl -fsSL .../install.sh | bash -s -- <version>` installs a
-# specific tagged release instead of the latest one.
-set -euo pipefail
+# Host requirements are kept to the floor and checked, never assumed:
+#   - prebuilt-binary path: a downloader (curl OR wget) and sh. That's all —
+#     releases ship the raw `porta` binary, so no tar/unzip is needed, and
+#     once porta itself is installed it extracts every tool's archives with
+#     its own built-in (pure-Rust) tar.gz/zip support.
+#   - build-from-source fallback (no prebuilt release for this platform):
+#     additionally tar (to unpack porta's source tarball — no git needed)
+#     and a Rust toolchain; if cargo is missing, a user-local one is
+#     installed via rustup (no admin).
+#
+# Optional: `... | sh -s -- <version>` installs a specific tagged release.
+set -eu
 
 REPO="baileyrd/porta"
 VERSION="${1:-latest}"
@@ -23,11 +28,22 @@ BIN_DIR="$PORTA_HOME/bin"
 log() { printf 'porta-install: %s\n' "$*"; }
 die() { printf 'porta-install: error: %s\n' "$*" >&2; exit 1; }
 
+# fetch <url> <output-file>: curl or wget, whichever exists.
+fetch() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$2" "$1"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$2" "$1"
+  else
+    die "neither curl nor wget is available — one of them is required to download porta"
+  fi
+}
+
 detect_os() {
   case "$(uname -s)" in
     Linux) echo linux ;;
     Darwin) echo macos ;;
-    *) die "unsupported OS: $(uname -s) (native install only covers Linux/macOS; try WSL on Windows)" ;;
+    *) die "unsupported OS: $(uname -s) (native install covers Linux/macOS; try WSL on Windows)" ;;
   esac
 }
 
@@ -39,36 +55,42 @@ detect_arch() {
   esac
 }
 
-# Tries to fetch a prebuilt release archive; returns 1 (without dying) if
-# none exists yet so the caller can fall back to building from source.
+# Tries the prebuilt release paths; returns 1 (without dying) when no
+# release asset exists so the caller can fall back to building from source.
 try_install_prebuilt() {
-  local os="$1" arch="$2" tag="$3"
-  local asset="porta-${os}-${arch}.tar.gz"
-  local url
+  os="$1"; arch="$2"; tag="$3"
   if [ "$tag" = "latest" ]; then
-    url="https://github.com/$REPO/releases/latest/download/$asset"
+    base="https://github.com/$REPO/releases/latest/download"
   else
-    url="https://github.com/$REPO/releases/download/$tag/$asset"
+    base="https://github.com/$REPO/releases/download/$tag"
   fi
 
-  local tmp
   tmp="$(mktemp -d)"
 
-  # Deliberately not a `trap ... RETURN` here: that trap stays armed for
-  # every later function return in the same shell (a well-known bash
-  # gotcha), not just this one, so cleanup is done explicitly at each exit
-  # point instead.
-  if ! curl -fsSL -o "$tmp/$asset" "$url" 2>/dev/null; then
+  # Preferred asset: the raw binary — needs no extractor at all.
+  if fetch "$base/porta-$os-$arch" "$tmp/porta" 2>/dev/null; then
+    log "found prebuilt release binary (porta-$os-$arch)"
+    mkdir -p "$BIN_DIR"
+    chmod 0755 "$tmp/porta"
+    mv "$tmp/porta" "$BIN_DIR/porta"
     rm -rf "$tmp"
-    return 1
+    return 0
   fi
 
-  log "found prebuilt release ($asset), extracting..."
-  mkdir -p "$BIN_DIR"
-  tar -xzf "$tmp/$asset" -C "$tmp"
-  install -m 0755 "$tmp/porta" "$BIN_DIR/porta"
+  # Legacy/alternative asset shape: a tar.gz (only usable if tar exists).
+  if command -v tar >/dev/null 2>&1 \
+     && fetch "$base/porta-$os-$arch.tar.gz" "$tmp/porta.tar.gz" 2>/dev/null; then
+    log "found prebuilt release archive (porta-$os-$arch.tar.gz), extracting..."
+    tar -xzf "$tmp/porta.tar.gz" -C "$tmp"
+    mkdir -p "$BIN_DIR"
+    chmod 0755 "$tmp/porta"
+    mv "$tmp/porta" "$BIN_DIR/porta"
+    rm -rf "$tmp"
+    return 0
+  fi
+
   rm -rf "$tmp"
-  return 0
+  return 1
 }
 
 ensure_rust_toolchain() {
@@ -76,37 +98,54 @@ ensure_rust_toolchain() {
     return 0
   fi
   log "no Rust toolchain found; installing one for your user via rustup (no admin needed)..."
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-  # shellcheck disable=SC1090
-  source "$HOME/.cargo/env"
+  rustup_tmp="$(mktemp)"
+  fetch "https://sh.rustup.rs" "$rustup_tmp"
+  sh "$rustup_tmp" -y --no-modify-path
+  rm -f "$rustup_tmp"
+  # rustup's env file is POSIX-compatible.
+  . "$HOME/.cargo/env"
 }
 
+# Builds porta from a source tarball — no git required.
 build_from_source() {
-  local tag="$1"
+  tag="$1"
+  command -v tar >/dev/null 2>&1 \
+    || die "building porta from source needs tar to unpack the source tarball (no prebuilt release exists for this platform yet)"
   ensure_rust_toolchain
-  command -v git >/dev/null 2>&1 || die "git is required to build porta from source"
 
-  local src_dir="$PORTA_HOME/src/porta"
-  rm -rf "$src_dir"
-  mkdir -p "$(dirname "$src_dir")"
-
-  log "cloning $REPO..."
   if [ "$tag" = "latest" ]; then
-    git clone --depth 1 "https://github.com/$REPO" "$src_dir"
+    src_url="https://codeload.github.com/$REPO/tar.gz/refs/heads/main"
   else
-    git clone --depth 1 --branch "$tag" "https://github.com/$REPO" "$src_dir"
+    src_url="https://codeload.github.com/$REPO/tar.gz/refs/tags/$tag"
   fi
 
+  src_dir="$PORTA_HOME/src"
+  rm -rf "$src_dir"
+  mkdir -p "$src_dir"
+
+  log "downloading porta source tarball ($src_url)..."
+  fetch "$src_url" "$src_dir/porta-src.tar.gz"
+  tar -xzf "$src_dir/porta-src.tar.gz" -C "$src_dir"
+  rm -f "$src_dir/porta-src.tar.gz"
+
+  # The tarball nests everything under porta-<ref>/ — find that directory.
+  src_root=""
+  for d in "$src_dir"/*/; do
+    src_root="$d"
+    break
+  done
+  [ -n "$src_root" ] || die "source tarball extraction produced no directory"
+
   log "building porta (this can take a minute the first time)..."
-  (cd "$src_dir" && cargo build --release)
+  (cd "$src_root" && cargo build --release)
 
   mkdir -p "$BIN_DIR"
-  install -m 0755 "$src_dir/target/release/porta" "$BIN_DIR/porta"
+  cp "$src_root/target/release/porta" "$BIN_DIR/porta"
+  chmod 0755 "$BIN_DIR/porta"
   rm -rf "$src_dir"
 }
 
 main() {
-  local os arch
   os="$(detect_os)"
   arch="$(detect_arch)"
 
@@ -125,7 +164,7 @@ main() {
     "$BIN_DIR/porta" init --with-ai
   fi
 
-  log "done. Restart your shell, or run: source <($BIN_DIR/porta path 2>/dev/null || true)"
+  log "done. Restart your shell to pick up PATH (or run: eval \"\$($BIN_DIR/porta path)\")"
 }
 
 main "$@"

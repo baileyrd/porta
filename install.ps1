@@ -7,10 +7,13 @@
 #   - installs the `porta.exe` binary into $PortaHome\bin (default
 #     %LOCALAPPDATA%\porta\bin)
 #   - if no prebuilt release is available for this platform yet, builds
-#     porta from source, installing a user-local Rust toolchain via rustup
-#     first if one isn't already on PATH
+#     porta from a source ZIP (no git required), installing a user-local
+#     Rust toolchain via rustup first if one isn't already on PATH
 #   - runs `porta init` to add porta's bin dir to your user PATH
 #     (HKCU\Environment — never the machine-wide PATH)
+#
+# Host requirements are the floor Windows itself provides: PowerShell with
+# Invoke-WebRequest and Expand-Archive. Nothing else is assumed present.
 #
 # Optional: pass a specific release tag instead of the latest:
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/baileyrd/porta/main/install.ps1))) v0.2.0
@@ -38,18 +41,30 @@ function Get-PortaArch {
 }
 
 function Try-InstallPrebuilt([string]$Arch, [string]$Tag) {
-    $asset = "porta-windows-$Arch.zip"
     if ($Tag -eq "latest") {
-        $url = "https://github.com/$Repo/releases/latest/download/$asset"
+        $base = "https://github.com/$Repo/releases/latest/download"
     } else {
-        $url = "https://github.com/$Repo/releases/download/$Tag/$asset"
+        $base = "https://github.com/$Repo/releases/download/$Tag"
     }
 
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
     try {
+        # Preferred asset: the raw binary — nothing to extract.
+        try {
+            $rawPath = Join-Path $tmp "porta.exe"
+            Invoke-WebRequest -Uri "$base/porta-windows-$Arch.exe" -OutFile $rawPath -UseBasicParsing -ErrorAction Stop
+            Write-Log "found prebuilt release binary (porta-windows-$Arch.exe)"
+            New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+            Copy-Item -Path $rawPath -Destination (Join-Path $BinDir "porta.exe") -Force
+            return $true
+        } catch {
+            # fall through to the zip asset shape
+        }
+
+        $asset = "porta-windows-$Arch.zip"
         $archivePath = Join-Path $tmp $asset
-        Invoke-WebRequest -Uri $url -OutFile $archivePath -UseBasicParsing -ErrorAction Stop
+        Invoke-WebRequest -Uri "$base/$asset" -OutFile $archivePath -UseBasicParsing -ErrorAction Stop
 
         Write-Log "found prebuilt release ($asset), extracting..."
         New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
@@ -79,29 +94,35 @@ function Ensure-RustToolchain {
 }
 
 function Build-FromSource([string]$Tag) {
+    # Builds from a source ZIP — no git required on the host.
     Ensure-RustToolchain
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        throw "git is required to build porta from source (install Git for Windows first)"
+
+    if ($Tag -eq "latest") {
+        $srcUrl = "https://codeload.github.com/$Repo/zip/refs/heads/main"
+    } else {
+        $srcUrl = "https://codeload.github.com/$Repo/zip/refs/tags/$Tag"
     }
 
-    $srcDir = Join-Path $PortaHome "src\porta"
+    $srcDir = Join-Path $PortaHome "src"
     if (Test-Path $srcDir) {
         Remove-Item -Recurse -Force $srcDir
     }
-    New-Item -ItemType Directory -Path (Split-Path $srcDir -Parent) -Force | Out-Null
+    New-Item -ItemType Directory -Path $srcDir -Force | Out-Null
 
-    Write-Log "cloning $Repo..."
-    if ($Tag -eq "latest") {
-        git clone --depth 1 "https://github.com/$Repo" $srcDir
-    } else {
-        git clone --depth 1 --branch $Tag "https://github.com/$Repo" $srcDir
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "git clone failed"
+    Write-Log "downloading porta source archive ($srcUrl)..."
+    $srcZip = Join-Path $srcDir "porta-src.zip"
+    Invoke-WebRequest -Uri $srcUrl -OutFile $srcZip -UseBasicParsing -ErrorAction Stop
+    Expand-Archive -LiteralPath $srcZip -DestinationPath $srcDir -Force
+    Remove-Item -Force $srcZip
+
+    # The archive nests everything under porta-<ref>\ — find that directory.
+    $srcRoot = Get-ChildItem -Path $srcDir -Directory | Select-Object -First 1
+    if (-not $srcRoot) {
+        throw "source archive extraction produced no directory"
     }
 
     Write-Log "building porta (this can take a minute the first time)..."
-    Push-Location $srcDir
+    Push-Location $srcRoot.FullName
     try {
         cargo build --release
         if ($LASTEXITCODE -ne 0) {
@@ -112,7 +133,7 @@ function Build-FromSource([string]$Tag) {
     }
 
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
-    Copy-Item -Path (Join-Path $srcDir "target\release\porta.exe") -Destination (Join-Path $BinDir "porta.exe") -Force
+    Copy-Item -Path (Join-Path $srcRoot.FullName "target\release\porta.exe") -Destination (Join-Path $BinDir "porta.exe") -Force
     Remove-Item -Recurse -Force $srcDir -ErrorAction SilentlyContinue
 }
 

@@ -73,9 +73,10 @@ src/
                  to copies when symlinks need Developer Mode.
   download.rs    the only place HTTP happens: ureq + rustls, 300s timeout,
                  root-of-trust policy (see below)
-  archive.rs     extraction by shelling out (tar / unzip / Expand-Archive)
-                 + `locate`, which finds a binary inside an archive whose
-                 top-level directory name wasn't predictable
+  archive.rs     pure-Rust tar.gz/zip extraction (flate2/tar/zip crates,
+                 path-traversal guarded) + `locate` (find a binary under an
+                 unpredictable top-level dir) + `source_root` (unwrap forge
+                 tarballs' single top dir)
   shell_init.rs  PATH wiring: idempotent marker blocks in rc files (Unix),
                  HKCU user PATH via PowerShell (Windows)
   doctor.rs      environment readout
@@ -83,7 +84,8 @@ src/
     mod.rs       Strategy enum, auto-selection policy, shared helpers
     script.rs    fetch + run a vendor's own installer
     binary.rs    download archive -> extract -> copy binary into bin/
-    source.rs    git clone --depth 1 -> run build_cmd -> copy binary
+    source.rs    source tarball (archive_url, no git) or git clone
+                 -> run build_cmd -> copy binary
 ```
 
 ## Command flow: `porta install <name>`
@@ -96,6 +98,8 @@ src/
    - else `script` wins if declared (it's the vendor's blessed path);
    - else try `binary`, and on *any* failure (no target for this os-arch,
      download error, extraction error) fall back to `source` if declared.
+     `source` prefers a declared `archive_url` (tarball download + built-in
+     extraction — no git) and only falls back to `git clone` without one.
 3. For `binary`: `version = "latest"` + `version_url` resolves the current
    version over the network (validated to look like a version string before
    it's templated into `{version}` placeholders in URLs); a pinned version
@@ -144,14 +148,20 @@ silently trust that just because it's there. Users behind a *legitimate*
 inspecting proxy opt in explicitly with `PORTA_TRUST_SYSTEM_CERTS=1`, which
 switches to `rustls-platform-verifier` (the OS store).
 
-## Why extraction shells out
+## Extraction is built in — nothing on the host is assumed
 
-`archive.rs` runs `tar -xzf` / `tar -xf`, falling back to `unzip` (Unix) or
-`Expand-Archive` (Windows) for zips. Vendoring a decompressor was rejected:
-every target OS ships `tar` (Windows 10 1803+ includes bsdtar), the shell-out
-needs no privileges, and it keeps porta's dependency tree small enough to
-audit. The trade-off is a runtime dependency on those tools existing, which
-`porta doctor`-style errors surface clearly when violated.
+`archive.rs` originally shelled out to host `tar`/`unzip`/`Expand-Archive`
+on the theory that "every OS ships one". That assumption was removed: a
+portable environment has to work on hosts where nothing can be counted on
+(stripped containers, minimal images), and that includes porta's own
+dependencies. Extraction now uses pure-Rust decompressors compiled into the
+binary — `flate2` (miniz_oxide backend) + `tar` for tar.gz, `zip` (deflate
+only) for zips — both of which refuse path-traversal entries. The same
+principle drove the `source` strategy's `archive_url` (source tarballs
+instead of requiring `git`) and the POSIX-sh bootstrap (`curl` OR `wget`,
+raw release binaries needing no extractor). What remains genuinely required
+is checked with an explicit error, never assumed: a build toolchain for
+`source` installs, `git` only for entries without an `archive_url`.
 
 ## Error-handling conventions
 
@@ -171,7 +181,9 @@ tilde expansion, version-string validation, `{version}` URL templating,
 dotted-path JSON checksum lookup, SHA-256 against a FIPS test vector,
 `${PORTA_HOME}` state-path round-tripping, PATH-block idempotency, quoting,
 and `$HOME`-relativity, tar.gz round-trip extraction, and `locate`'s
-tolerance of unpredictable archive top-level directory names. Integration
+tolerance of unpredictable archive top-level directory names, zip
+round-trips, source-root detection, and rejection of a hand-crafted
+path-traversal tar entry. Integration
 tests (`tests/dotfiles_cli.rs`) drive the real binary in scratch
 HOME/PORTA_HOME sandboxes: the dotfiles add/link/backup/remove lifecycle,
 dotfiles surviving an environment move via `porta init`, and a live bash
@@ -185,8 +197,12 @@ calls.
 ## The bootstrap installers
 
 `install.sh` / `install.ps1` exist because porta can't install itself. Both
-follow the same shape: try to download a prebuilt `porta` release for the
-platform; if none exists, install a **user-local** Rust toolchain via rustup
-(`--no-modify-path`, no admin) and build from a shallow clone; then run
-`porta init --with-ai` (skippable with `PORTA_SKIP_AI=1`). They are the only
+follow the same shape: try to download a prebuilt `porta` release binary
+(shipped raw, so no extractor is needed); if none exists, install a
+**user-local** Rust toolchain via rustup (`--no-modify-path`, no admin) and
+build from a **source tarball** — no git; then run `porta init --with-ai`
+(skippable with `PORTA_SKIP_AI=1`). `install.sh` is POSIX `sh` (verified
+under dash), works with `curl` or `wget`, and its prebuilt path needs
+nothing else; `install.ps1` needs only what Windows itself ships
+(PowerShell's `Invoke-WebRequest`/`Expand-Archive`). They are the only
 place porta ever installs a compiler, and only for building porta itself.

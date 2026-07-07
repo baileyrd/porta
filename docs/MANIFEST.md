@@ -126,22 +126,34 @@ binary_path = "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
   rather than guesses if nothing matches; a single-line `.sha256` document
   just uses its first token.
 
-## Strategy: `source` — clone and build
+## Strategy: `source` — fetch source and build
 
-Shallow-clones a git repository, runs a build command inside it, and copies
-the produced binary into `~/.porta/bin/`. porta checks the build tool (the
-first element of `build_cmd`) is on PATH *before* cloning, so you get a
-clear error instead of a wasted checkout. porta does not install compilers;
-the toolchain must already be there.
+Obtains a tool's source, runs a build command inside it, and copies the
+produced binary into `~/.porta/bin/`. porta checks the build tool (the
+first element of `build_cmd`) is on PATH *before* fetching anything, so you
+get a clear error instead of a wasted download. porta does not install
+compilers; the toolchain must already be there.
+
+With an **`archive_url`**, the source arrives as a `.tar.gz` download
+extracted by porta's built-in decompressor — **no `git` on the host**.
+`{ref}` is replaced with `git_ref`, and forge tarballs' single top-level
+directory (`<repo>-<ref>/`) is detected automatically. Without an
+`archive_url`, porta falls back to `git clone --depth 1` and requires git
+on PATH (checked, with an error pointing at the fix).
 
 ```toml
 [tool.source]
 repo = "https://github.com/BurntSushi/ripgrep"
 git_ref = "14.1.1"            # optional tag/branch; also recorded as the
                               # installed "version" (else "source")
+archive_url = "https://codeload.github.com/BurntSushi/ripgrep/tar.gz/refs/tags/{ref}"
 build_cmd = ["cargo", "build", "--release", "--bin", "rg"]
-binary_path = "target/release/rg"   # relative to the repo root
+binary_path = "target/release/rg"   # relative to the source root
 ```
+
+(`codeload.github.com` is GitHub's archive server — the host that
+`github.com/<owner>/<repo>/archive/...` URLs redirect to; using it directly
+avoids the redirect. Branch form: `.../tar.gz/refs/heads/{ref}`.)
 
 The checkout lives at `~/.porta/tools/<name>-src` during the build and is
 recreated from scratch on each install (no incremental state to go stale).
@@ -163,6 +175,7 @@ declare it.
 | name | strategies | what it is |
 |---|---|---|
 | `ai` | binary | Claude Code, downloaded checksum-verified from Anthropic's release endpoint (`downloads.claude.ai/claude-code-releases`, the same one the official installer uses) into `~/.porta/bin/claude` — inside the environment, so it moves with it. `version = "latest"` resolves at install time; re-run `porta install ai` to update. Linux targets use the glibc builds; on musl distros (Alpine), override with the `linux-*-musl` URLs in your user manifest. |
+| `rush` | source | a small bash-compatible shell in Rust, built from its source tarball (needs `cargo`, not `git`) — a shell that lives inside, and travels with, the environment |
 | `gh` | binary | the official GitHub CLI, from its release archives with SHA-256 verification against the combined `checksums.txt`. Pinned (GitHub has no plain-text latest-version endpoint); bump `version` to update. |
 | `ripgrep` | binary + source | fast recursive search; doubles as the worked example of a two-strategy entry |
 
