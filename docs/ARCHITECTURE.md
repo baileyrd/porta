@@ -157,6 +157,22 @@ silently trust that just because it's there. Users behind a *legitimate*
 inspecting proxy opt in explicitly with `PORTA_TRUST_SYSTEM_CERTS=1`, which
 switches to `rustls-platform-verifier` (the OS store).
 
+## GitHub auth (`download.rs`)
+
+GitHub serves anonymous **404s** (not 403s) for everything belonging to a
+private repository — codeload archives, release assets, raw files. So when
+`GITHUB_TOKEN` (or `GH_TOKEN`) is set, `fetch_bytes` attaches it as a
+bearer token — but *only* when the URL's host is one of GitHub's own
+(`github.com`, `codeload.github.com`, `raw.githubusercontent.com`,
+`api.github.com`, `objects.githubusercontent.com`,
+`release-assets.githubusercontent.com`), matched on the exact host over
+`https` only. A manifest entry pointing anywhere else — a lookalike domain,
+a vendor endpoint, plain `http` — never sees the token. The bootstrap
+installers implement the same rule with the same host list (`fetch()` in
+`install.sh`, `Get-GitHubAuthHeaders` in `install.ps1`), so a private porta
+repo can bootstrap without the token ever reaching `sh.rustup.rs` /
+`win.rustup.rs`.
+
 ## Extraction is built in — nothing on the host is assumed
 
 `archive.rs` originally shelled out to host `tar`/`unzip`/`Expand-Archive`

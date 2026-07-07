@@ -17,6 +17,10 @@
 #
 # Optional: pass a specific release tag instead of the latest:
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/baileyrd/porta/main/install.ps1))) v0.2.0
+#
+# Optional: $env:GITHUB_TOKEN = "<PAT>" if the porta repository is private
+# (GitHub answers 404 to anonymous requests for private repos). Sent to
+# GitHub's own hosts only, never anywhere else.
 
 param(
     [string]$Version = "latest"
@@ -30,6 +34,26 @@ $BinDir = Join-Path $PortaHome "bin"
 
 function Write-Log([string]$Message) {
     Write-Host "porta-install: $Message"
+}
+
+# GitHub serves anonymous 404s for private repositories, so when
+# GITHUB_TOKEN (or GH_TOKEN) is set it is attached as a bearer token —
+# but only to requests bound for GitHub's own hosts. It is never sent
+# anywhere else (e.g. win.rustup.rs).
+function Get-GitHubAuthHeaders([string]$Uri) {
+    $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } elseif ($env:GH_TOKEN) { $env:GH_TOKEN } else { $null }
+    if (-not $token) { return @{} }
+
+    $parsed = [System.Uri]$Uri
+    $gitHubHosts = @(
+        "github.com", "codeload.github.com", "raw.githubusercontent.com",
+        "api.github.com", "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com"
+    )
+    if ($parsed.Scheme -eq "https" -and $gitHubHosts -contains $parsed.Host) {
+        return @{ Authorization = "Bearer $token" }
+    }
+    return @{}
 }
 
 function Get-PortaArch {
@@ -53,7 +77,8 @@ function Try-InstallPrebuilt([string]$Arch, [string]$Tag) {
         # Preferred asset: the raw binary — nothing to extract.
         try {
             $rawPath = Join-Path $tmp "porta.exe"
-            Invoke-WebRequest -Uri "$base/porta-windows-$Arch.exe" -OutFile $rawPath -UseBasicParsing -ErrorAction Stop
+            $rawUrl = "$base/porta-windows-$Arch.exe"
+            Invoke-WebRequest -Uri $rawUrl -OutFile $rawPath -Headers (Get-GitHubAuthHeaders $rawUrl) -UseBasicParsing -ErrorAction Stop
             Write-Log "found prebuilt release binary (porta-windows-$Arch.exe)"
             New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
             Copy-Item -Path $rawPath -Destination (Join-Path $BinDir "porta.exe") -Force
@@ -64,7 +89,7 @@ function Try-InstallPrebuilt([string]$Arch, [string]$Tag) {
 
         $asset = "porta-windows-$Arch.zip"
         $archivePath = Join-Path $tmp $asset
-        Invoke-WebRequest -Uri "$base/$asset" -OutFile $archivePath -UseBasicParsing -ErrorAction Stop
+        Invoke-WebRequest -Uri "$base/$asset" -OutFile $archivePath -Headers (Get-GitHubAuthHeaders "$base/$asset") -UseBasicParsing -ErrorAction Stop
 
         Write-Log "found prebuilt release ($asset), extracting..."
         New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
@@ -111,7 +136,7 @@ function Build-FromSource([string]$Tag) {
 
     Write-Log "downloading porta source archive ($srcUrl)..."
     $srcZip = Join-Path $srcDir "porta-src.zip"
-    Invoke-WebRequest -Uri $srcUrl -OutFile $srcZip -UseBasicParsing -ErrorAction Stop
+    Invoke-WebRequest -Uri $srcUrl -OutFile $srcZip -Headers (Get-GitHubAuthHeaders $srcUrl) -UseBasicParsing -ErrorAction Stop
     Expand-Archive -LiteralPath $srcZip -DestinationPath $srcDir -Force
     Remove-Item -Force $srcZip
 

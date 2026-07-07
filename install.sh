@@ -20,6 +20,9 @@
 # Optional: `... | sh -s -- <version>` installs a specific tagged release.
 # Optional: PORTA_HOME=/opt/tools/porta designates a custom root — needed
 # only for this one command; the installed binary self-locates afterwards.
+# Optional: GITHUB_TOKEN=<PAT> if the porta repository is private (GitHub
+# answers 404 to anonymous requests for private repos). Sent to GitHub's
+# own hosts only, never anywhere else.
 set -eu
 
 REPO="baileyrd/porta"
@@ -31,11 +34,30 @@ log() { printf 'porta-install: %s\n' "$*"; }
 die() { printf 'porta-install: error: %s\n' "$*" >&2; exit 1; }
 
 # fetch <url> <output-file>: curl or wget, whichever exists.
+#
+# GitHub serves anonymous 404s for private repositories, so when
+# GITHUB_TOKEN (or GH_TOKEN) is set it is attached as a bearer token —
+# but only to requests bound for GitHub's own hosts. It is never sent
+# anywhere else (e.g. sh.rustup.rs).
 fetch() {
+  auth=""
+  case "$1" in
+    https://github.com/*|https://codeload.github.com/*|https://raw.githubusercontent.com/*|https://api.github.com/*|https://objects.githubusercontent.com/*|https://release-assets.githubusercontent.com/*)
+      auth="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+      ;;
+  esac
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$2" "$1"
+    if [ -n "$auth" ]; then
+      curl -fsSL -H "Authorization: Bearer $auth" -o "$2" "$1"
+    else
+      curl -fsSL -o "$2" "$1"
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$2" "$1"
+    if [ -n "$auth" ]; then
+      wget -q --header="Authorization: Bearer $auth" -O "$2" "$1"
+    else
+      wget -q -O "$2" "$1"
+    fi
   else
     die "neither curl nor wget is available — one of them is required to download porta"
   fi

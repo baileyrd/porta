@@ -23,15 +23,52 @@ fn root_certs() -> RootCerts {
     }
 }
 
+/// GitHub serves anonymous 404s for private repositories — releases,
+/// codeload archives, raw files alike. When `GITHUB_TOKEN` (or `GH_TOKEN`)
+/// is set, porta attaches it as a bearer token, but **only** to requests
+/// bound for GitHub's own hosts, so the token can never leak to any other
+/// endpoint a manifest might name.
+fn github_token_for(url: &str) -> Option<String> {
+    if !is_github_host(url) {
+        return None;
+    }
+    for var in ["GITHUB_TOKEN", "GH_TOKEN"] {
+        if let Ok(token) = std::env::var(var) {
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+    None
+}
+
+fn is_github_host(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let host = rest.split(['/', '?']).next().unwrap_or("");
+    matches!(
+        host,
+        "github.com"
+            | "codeload.github.com"
+            | "raw.githubusercontent.com"
+            | "api.github.com"
+            | "objects.githubusercontent.com"
+            | "release-assets.githubusercontent.com"
+    )
+}
+
 pub fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
     let tls_config = TlsConfig::builder().root_certs(root_certs()).build();
-    let mut response = ureq::get(url)
+    let mut request = ureq::get(url)
         .config()
         .timeout_global(Some(TIMEOUT))
         .tls_config(tls_config)
-        .build()
-        .call()
-        .with_context(|| format!("GET {url}"))?;
+        .build();
+    if let Some(token) = github_token_for(url) {
+        request = request.header("Authorization", format!("Bearer {token}"));
+    }
+    let mut response = request.call().with_context(|| format!("GET {url}"))?;
 
     let status = response.status();
     if !status.is_success() {
@@ -59,4 +96,32 @@ pub fn download_to_file(url: &str, dest: &std::path::Path) -> Result<()> {
             .with_context(|| format!("creating {}", parent.display()))?;
     }
     std::fs::write(dest, bytes).with_context(|| format!("writing {}", dest.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_scoping_is_github_hosts_only() {
+        assert!(is_github_host("https://github.com/o/r/releases/latest"));
+        assert!(is_github_host(
+            "https://codeload.github.com/o/r/tar.gz/refs/heads/main"
+        ));
+        assert!(is_github_host(
+            "https://raw.githubusercontent.com/o/r/main/install.sh"
+        ));
+        assert!(is_github_host(
+            "https://objects.githubusercontent.com/asset"
+        ));
+
+        // Never attach a GitHub token to anything else.
+        assert!(!is_github_host("https://sh.rustup.rs"));
+        assert!(!is_github_host(
+            "https://downloads.claude.ai/claude-code-releases/latest"
+        ));
+        assert!(!is_github_host("https://evil.example/github.com/"));
+        assert!(!is_github_host("https://github.com.evil.example/x"));
+        assert!(!is_github_host("http://github.com/o/r")); // plain http: no
+    }
 }
